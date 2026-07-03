@@ -5,8 +5,13 @@ export default (fileName?: string[] | string) => {
   let basePath: string;
   if (typeof process.versions?.electron !== "undefined") {
     const { app } = require("electron");
-    const userDataDir: string = app.getPath("userData");
-    basePath = path.join(userDataDir, "data");
+    if (app.isPackaged) {
+      const userDataDir: string = app.getPath("userData");
+      basePath = path.join(userDataDir, "data");
+    } else {
+      // 开发环境下直接使用项目目录
+      basePath = path.join(process.cwd(), "data");
+    }
   } else {
     basePath = path.join(process.cwd(), "data");
   }

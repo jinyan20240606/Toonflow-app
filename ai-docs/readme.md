@@ -63,7 +63,11 @@ yarn dev:gui
 ```
 
 访问 `http://localhost:10588/index.html`（Docker/服务器模式）或直接使用 Electron 窗口。
+#### 问题报错
 
+- 如果报版本不兼容better_sqlite3.node'，was compiled against a different Node.js version using，wasNODE_MODULE_VERSION 127. This version of Node.js requires
+  - 运行`npx electron-rebuild -f -w better-sqlite3`
+  - 已加在postinstall钩子里了自动执行
 ### 方式三：Docker 部署
 
 ```bash
