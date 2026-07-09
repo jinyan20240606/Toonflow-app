@@ -55,3 +55,6 @@ database.d.ts
 data/oss/*
 data/test.sqlite
 version.txt
+
+# 前端 Vite 构建产物（由 Toonflow-web 构建输出）
+data/web/*

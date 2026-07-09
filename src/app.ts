@@ -140,7 +140,8 @@ export default async function startServe(randomPort: Boolean = false) {
   console.log("文件目录:", assetsDir);
   app.use("/assets", express.static(assetsDir, { acceptRanges: false }));
 
-  // data/web 静态网站
+  // 前端页面服务：读取 Vite 构建产物 data/web
+  // （开发环境由 Electron 直连 Vite dev server，见 scripts/main.ts 的 VITE_DEV 分支）
   const webDir = u.getPath("web");
   if (fs.existsSync(webDir)) {
     console.log("静态网站目录:", webDir);

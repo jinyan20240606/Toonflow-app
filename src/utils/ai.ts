@@ -3,6 +3,7 @@ import { devToolsMiddleware } from "@ai-sdk/devtools";
 import axios from "axios";
 import { transform } from "sucrase";
 import u from "@/utils";
+import { schedule as rateLimitSchedule } from "@/utils/rateLimit";
 
 type AiType =
   | "scriptAgent"
@@ -125,6 +126,7 @@ async function getVendorTemplateFn(fnName: FnName, modelName: `${string}:${strin
   const code = u.vendor.getCode(id);
   const jsCode = transform(code, { transforms: ["typescript"] }).code;
   const running = u.vm(jsCode);
+  const vendorName: string = running.vendor?.name ?? id;
   if (running.vendor) {
     Object.assign(running.vendor.inputValues, JSON.parse(vendorConfigData.inputValues ?? "{}"));
     running.vendor.models = modelList;
@@ -134,9 +136,28 @@ async function getVendorTemplateFn(fnName: FnName, modelName: `${string}:${strin
   if (fnName == "textRequest")
     return (think?: boolean, thinkLevel: 0 | 1 | 2 | 3 = 0) => {
       const effectiveThink = think ?? !!selectedModel.think;
-      return fn(selectedModel, effectiveThink, thinkLevel);
+      try {
+        return fn(selectedModel, effectiveThink, thinkLevel);
+      } catch (err: any) {
+        const msg: string = err?.message ?? String(err);
+        throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+      }
     };
-  else return <T>(input: T) => fn(input, selectedModel);
+  else return <T>(input: T) => {
+    try {
+      const result = fn(input, selectedModel);
+      if (result && typeof result.then === "function") {
+        return result.catch((err: any) => {
+          const msg: string = err?.message ?? String(err);
+          throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+        });
+      }
+      return result;
+    } catch (err: any) {
+      const msg: string = err?.message ?? String(err);
+      throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+    }
+  };
 }
 
 async function withTaskRecord<T>(
@@ -250,23 +271,36 @@ class AiImage {
     this.key = key;
   }
   async run(input: ImageConfig, taskRecord?: TaskRecord) {
+    console.log(`[AiImage.run] 开始, key=${this.key}, hasTaskRecord=${!!taskRecord}`);
     const modelName = await resolveModelName(this.key);
+    console.log(`[AiImage.run] resolveModelName => ${modelName}`);
     const exec = async (mn: `${string}:${string}`) => {
       const fn = await getVendorTemplateFn("imageRequest", mn);
       await referenceList2imageBase642(mn.split(/:(.+)/)[0], input);
       this.result = await fn(input);
-      if (this.result.startsWith("http")) this.result = await urlToBase64(this.result);
+      console.log(`[AiImage.run] fn 执行完成, result 类型=${typeof this.result}, result 长度=${this.result?.length ?? 0}, 开头=${this.result?.slice(0, 30)}`);
+      if (this.result.startsWith("http")) {
+        console.log(`[AiImage.run] result 是 URL，开始下载转 base64...`);
+        this.result = await urlToBase64(this.result);
+        console.log(`[AiImage.run] urlToBase64 完成, result 长度=${this.result?.length ?? 0}`);
+      }
       return this;
     };
     if (taskRecord) {
       await withTaskRecord(this.key, taskRecord.taskClass, taskRecord.describe, taskRecord.relatedObjects, taskRecord.projectId, exec);
+      console.log(`[AiImage.run] withTaskRecord 完成, result 长度=${this.result?.length ?? 0}`);
       return this;
     }
     await exec(modelName);
     return this;
   }
   async save(path: string) {
+    if (!this.result) {
+      throw new Error("图片生成结果为空，无法保存。请检查供应商配置中的 imageRequest 函数是否正确实现。");
+    }
+    console.log(`[AiImage.save] 开始写入, path=${path}, result 长度=${this.result?.length ?? 0}`);
     await u.oss.writeFile(path, this.result);
+    console.log(`[AiImage.save] 写入完成`);
     return this;
   }
 }
@@ -297,27 +331,49 @@ class AiVideo {
   }
   async run(input: VideoConfig, taskRecord?: TaskRecord) {
     const modelName = await resolveModelName(this.key);
+    console.log(`[AiVideo.run] 开始, key=${this.key}, modelName=${modelName}, hasTaskRecord=${!!taskRecord}`);
     try {
       const exec = async (mn: `${string}:${string}`) => {
+        console.log(`[AiVideo.run] exec 调用, mn=${mn}`);
         const fn = await getVendorTemplateFn("videoRequest", mn);
         await referenceList2imageBase642(mn.split(/:(.+)/)[0], input);
 
-        this.result = await fn(input);
+        // 视频提交限流：以供应商 ID 为维度排队，避免触发供应商频率限制。
+        // 默认每分钟 1 次（minTime=60000），可通过 o_setting 配置：
+        //   rateLimit:video:submit:<vendorId>:enable / :minTime / :maxConcurrent
+        const vendorId = mn.split(/:(.+)/)[0];
+        this.result = await rateLimitSchedule(`video:submit:${vendorId}`, () => fn(input), {
+          minTime: 60000,
+          maxConcurrent: 1,
+          defaultEnabled: false,
+        });
+        console.log(`[AiVideo.run] fn 执行完成, result 类型=${typeof this.result}, result 长度=${this.result?.length ?? 0}`);
 
-        if (this.result.startsWith("http")) this.result = await urlToBase64(this.result);
+        if (this.result.startsWith("http")) {
+          console.log(`[AiVideo.run] result 是 URL，开始下载转 base64...`);
+          this.result = await urlToBase64(this.result);
+          console.log(`[AiVideo.run] urlToBase64 完成, result 长度=${this.result?.length ?? 0}`);
+        }
       };
       if (taskRecord) {
         await withTaskRecord(this.key, taskRecord.taskClass, taskRecord.describe, taskRecord.relatedObjects, taskRecord.projectId, exec);
+        console.log(`[AiVideo.run] withTaskRecord 完成`);
         return this;
       }
       await exec(modelName);
       return this;
     } catch (e) {
+      console.error(`[AiVideo.run] 异常:`, u.error(e).message);
       throw e;
     }
   }
   async save(path: string) {
+    if (!this.result) {
+      throw new Error("视频生成结果为空，无法保存。请检查供应商配置中的 videoRequest 函数是否正确实现。");
+    }
+    console.log(`[AiVideo.save] 开始写入, path=${path}, result 长度=${this.result?.length ?? 0}`);
     await u.oss.writeFile(path, this.result);
+    console.log(`[AiVideo.save] 写入完成`);
     return this;
   }
 }

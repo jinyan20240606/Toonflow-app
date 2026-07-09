@@ -20,7 +20,7 @@
       <div class="itemBox">
         <div
           class="item"
-          :class="{ active: index === activeTrackIndex }"
+          :class="{ active: index === activeTrackIndex, loading: isTrackCardLoading(track) }"
           v-for="(track, index) in trackList"
           :key="track.id"
           @click="changeIndex(index)">
@@ -55,6 +55,10 @@
             </template>
           </div>
           <span v-else class="emptyTrack">{{ $t("workbench.generate.emptyTrack", { index: index + 1 }) }}</span>
+          <div v-if="isTrackCardLoading(track)" class="itemLoading c fc">
+            <t-loading size="24px" />
+            <span class="loadingText">{{ getTrackCardLoadingText(track) }}</span>
+          </div>
           <div class="deleteBtn" @click.stop="confirmDeleteTrack(index)">
             <i-close size="14" />
           </div>
@@ -107,6 +111,17 @@ function getSelectedVideoSrc(track: TrackItem): string | null {
   if (!track.selectVideoId) return null;
   const video = track.videoList?.find((v) => v.id === track.selectVideoId);
   return video?.src || null;
+}
+
+function isTrackCardLoading(track: TrackItem) {
+  if (track.state === "生成中") return true;
+  return track.videoList?.some((video) => video.state === "生成中");
+}
+
+function getTrackCardLoadingText(track: TrackItem) {
+  if (track.state === "生成中") return $t("workbench.generate.generateText");
+  if (track.videoList?.some((video) => video.state === "生成中")) return $t("workbench.generate.generating");
+  return "";
 }
 
 /** 截取视频首帧封面 */
@@ -214,6 +229,10 @@ function getFileExtension(url: string): string {
 }
 /** 批量下载已勾选轨道的选中视频，打包为 zip */
 async function batchDownloadVideo(): Promise<void> {
+  if (!checkedTrackIds.value.length) {
+    window.$message.warning("请先选择要操作的分镜");
+    return;
+  }
   const zip = new JSZip();
   const selectedTracks = trackList.value.filter((track) => checkedTrackIds.value.includes(track.id));
   const tasks = selectedTracks
@@ -242,6 +261,10 @@ async function batchDownloadVideo(): Promise<void> {
 }
 const generateTextLoad = ref(false);
 function batchGenText() {
+  if (!checkedTrackIds.value.length) {
+    window.$message.warning("请先选择要操作的分镜");
+    return;
+  }
   generateTextLoad.value = true;
   const trackData: any[] = [];
   trackList.value.forEach((track, index) => {
@@ -302,6 +325,10 @@ function getTrackUploadInfo(track: TrackItem, filterEmpty = false) {
 const generateVideoLoad = ref(false);
 /** 批量为已勾选轨道生成视频 */
 function batchGenVideo() {
+  if (!checkedTrackIds.value.length) {
+    window.$message.warning("请先选择要操作的分镜");
+    return;
+  }
   const dlg = DialogPlugin.confirm({
     header: $t("workbench.generate.generateConfirm"),
     body: $t("workbench.generate.generateVideosInBatches"),
@@ -473,11 +500,22 @@ watch(
         color: var(--td-text-color-placeholder);
         font-size: 12px;
       }
+      .itemLoading {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        gap: 6px;
+        background: rgba(0, 0, 0, 0.45);
+        color: #fff;
+        .loadingText {
+          font-size: 12px;
+        }
+      }
       .trackCheck {
         position: absolute;
         top: 4px;
         left: 4px;
-        z-index: 2;
+        z-index: 4;
       }
       .deleteBtn {
         position: absolute;
@@ -492,7 +530,7 @@ watch(
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        z-index: 1;
+        z-index: 4;
         &:hover {
           background: rgba(0, 0, 0, 0.8);
         }

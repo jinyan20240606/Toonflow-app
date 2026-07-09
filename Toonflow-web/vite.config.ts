@@ -10,6 +10,9 @@ import postcsspxtoviewport from "postcss-px-to-viewport";
 export default defineConfig({
   base: "./",
   build: {
+    // 构建产物直接输出到后端的 data/web，供 Electron 打包与生产环境读取
+    outDir: fileURLToPath(new URL("../data/web", import.meta.url)),
+    emptyOutDir: true,
     assetsInlineLimit: Infinity,
     rollupOptions: {
       output: {

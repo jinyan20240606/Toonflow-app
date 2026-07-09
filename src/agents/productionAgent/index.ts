@@ -125,16 +125,17 @@ async function createSubAgent(parentCtx: AgentContext) {
     });
 
     const fullResponse = await consumeFullStream(fullStream, subMsg);
+    const finalResponse = subMsg.text || fullResponse;
 
-    if (fullResponse.trim()) {
-      await memory.add(memoryKey, removeAllXmlTags(fullResponse), {
+    if (finalResponse.trim()) {
+      await memory.add(memoryKey, removeAllXmlTags(finalResponse), {
         name,
         createTime: new Date(subMsg.datetime).getTime(),
       });
     }
 
     parentCtx.msg = resTool.newMessage("assistant", "视频策划");
-    return fullResponse;
+    return finalResponse;
   }
 
   const promptInput = z

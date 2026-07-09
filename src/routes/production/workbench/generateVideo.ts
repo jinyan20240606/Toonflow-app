@@ -91,6 +91,7 @@ export default router.post(
       type: "视频",
     };
     const aiVideo = u.Ai.Video(model);
+    console.log(`[generateVideo] 开始生成视频, videoId=${videoId}, model=${model}, trackId=${trackId}`);
     aiVideo
       .run(
         {
@@ -109,9 +110,17 @@ export default router.post(
           relatedObjects: JSON.stringify(relatedObjects),
         },
       )
-      .then(async () => await aiVideo.save(videoPath))
-      .then(async () => await u.db("o_video").where("id", videoId).update({ state: "生成成功" }))
+      .then(async () => {
+        console.log(`[generateVideo] 视频生成完成, videoId=${videoId}, 开始保存文件`);
+        await aiVideo.save(videoPath);
+      })
+      .then(async () => {
+        console.log(`[generateVideo] 视频文件保存成功, videoId=${videoId}, path=${videoPath}`);
+        await u.db("o_video").where("id", videoId).update({ state: "生成成功" });
+        console.log(`[generateVideo] 视频状态已更新为「生成成功」, videoId=${videoId}`);
+      })
       .catch(async (error: any) => {
+        console.error(`[generateVideo] 视频生成失败, videoId=${videoId}, error=`, u.error(error).message);
         await u
           .db("o_video")
           .where("id", videoId)

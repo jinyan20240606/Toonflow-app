@@ -27,13 +27,6 @@
     </div>
   </div>
   <div class="settingBtn">
-    <t-dropdown :options="langOptions" trigger="click" @click="handleChangeLang" :maxColumnWidth="150">
-      <t-button shape="circle" theme="default" size="large">
-        <template #icon>
-          <i-translate theme="outline" size="20" />
-        </template>
-      </t-button>
-    </t-dropdown>
     <t-button shape="circle" theme="primary" size="large" @click="showSettingModal = true">
       <template #icon>
         <i-setting-two theme="outline" size="20" />
@@ -49,17 +42,6 @@ import logo from "@/assets/logo.png";
 import axios from "@/utils/axios";
 import settingStore from "@/stores/setting";
 import { storeToRefs } from "pinia";
-import { languageList, cachedLocale } from "@/locales";
-
-const { locale } = useI18n();
-const langOptions = languageList.map((item) => ({
-  content: item.label,
-  value: item.value,
-}));
-const handleChangeLang = (data) => {
-  locale.value = data.value;
-  cachedLocale.value = data.value;
-};
 
 const store = settingStore();
 const { baseUrl, isElectron } = storeToRefs(store);

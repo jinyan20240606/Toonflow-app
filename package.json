@@ -19,18 +19,15 @@
     "node": ">=1.0.0"
   },
   "scripts": {
-    "dev": "nodemon --inspect --exec tsx src/app.ts",
-    "dev:gui": "electronmon -r tsx scripts/main.ts",
+    "dev": "concurrently -n web,electron -c cyan,magenta -k \"yarn dev:web\" \"wait-on tcp:50188 && yarn dev:gui-vite\"",
+    "dev:web": "yarn --cwd Toonflow-web dev",
     "dev:gui-vite": "cross-env VITE_DEV=1 electronmon -r tsx scripts/main.ts",
-    "start": "cross-env NODE_ENV=prod node data/serve/app.js",
     "lint": "tsc --noEmit",
     "build": "cross-env NODE_ENV=prod tsx scripts/build.ts",
-    "pack": "electron-builder --dir",
     "dist": "yarn build && electron-builder",
     "dist:win": "yarn build && electron-builder --win",
     "dist:mac": "yarn build && electron-builder --mac",
     "dist:linux": "yarn build && electron-builder --linux",
-    "debug:ai": "npx @ai-sdk/devtools",
     "license": "node scripts/license.ts",
     "vendor2json": "node scripts/vendor2json.ts",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
@@ -49,6 +46,7 @@
     "axios": "^1.13.2",
     "axios-retry": "^4.5.0",
     "better-sqlite3": "^12.9.0",
+    "bottleneck": "^2.19.5",
     "compressing": "^2.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -85,6 +83,7 @@
     "@types/license-checker": "^25.0.6",
     "@types/lodash": "^4.17.24",
     "@types/morgan": "^1.9.10",
+    "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "electron": "^40.0.0",
     "electron-builder": "^26.4.0",
@@ -93,7 +92,8 @@
     "license-checker": "^25.0.1",
     "nodemon": "^3.1.11",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "wait-on": "^9.0.10"
   },
   "overrides": {
     "@rmp135/sql-ts": {

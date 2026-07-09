@@ -15,13 +15,13 @@
         <div class="sectionTitle">{{ currentMenuItem ? $t(currentMenuItem.label) : "" }}</div>
         <div class="settingContent">
           <uiConfig v-if="activeMenu === 'ui'" />
-          <languageConfig v-if="activeMenu === 'language'" />
           <vendorConfig v-if="activeMenu === 'vendorConfig'" />
           <requestConfig v-if="activeMenu === 'requestConfig'" />
           <loginConfig v-if="activeMenu === 'loginConfig'" />
           <agentConfog v-if="activeMenu === 'agentConfog'" />
           <promptManage v-if="activeMenu === 'promptManage'" />
           <otherConfig v-if="activeMenu === 'otherConfig'" />
+          <rateLimitConfig v-if="activeMenu === 'rateLimitConfig'" />
           <dbConfig v-if="activeMenu === 'dbConfig'" />
           <about v-if="activeMenu === 'about'" />
           <logoutConfig v-if="activeMenu === 'logoutConfig'" />
@@ -41,7 +41,6 @@ import settingStore from "@/stores/setting";
 const { showSetting, activeMenu, needUpdate } = storeToRefs(settingStore());
 
 import uiConfig from "./components/uiConfig.vue";
-import languageConfig from "./components/languageConfig.vue";
 import requestConfig from "./components/requestConfig.vue";
 import loginConfig from "./components/loginConfig.vue";
 import agentConfog from "./components/agentConfog.vue";
@@ -56,10 +55,10 @@ import skillManagement from "./components/skillManagement.vue";
 import devConfig from "./components/devConfig.vue";
 import promptManage from "./components/promptManage.vue";
 import modelMap from "./components/modelMap.vue";
+import rateLimitConfig from "./components/rateLimitConfig.vue";
 
 const menuItems = [
   { key: "ui", label: "settings.menu.ui", icon: "i-theme" },
-  { key: "language", label: "settings.menu.language", icon: "i-translate" },
   { key: "vendorConfig", label: "settings.menu.vendorConfig", icon: "i-computer" },
   { key: "modelMap", label: "settings.menu.modelMap", icon: "i-computer" },
   { key: "agentConfog", label: "settings.menu.agentConfig", icon: "i-color-filter" },
@@ -70,6 +69,7 @@ const menuItems = [
   { key: "dbConfig", label: "settings.menu.dbConfig", icon: "i-data" },
   { key: "fileManagement", label: "settings.menu.fileManagement", icon: "i-hard-disk" },
   { key: "otherConfig", label: "settings.menu.otherConfig", icon: "i-application-menu" },
+  { key: "rateLimitConfig", label: "settings.menu.rateLimitConfig", icon: "i-dashboard" },
   { key: "requestConfig", label: "settings.menu.requestConfig", icon: "i-api" },
   { key: "devConfig", label: "settings.menu.devConfig", icon: "i-flask" },
   { key: "about", label: "settings.menu.about", icon: "i-info" },
