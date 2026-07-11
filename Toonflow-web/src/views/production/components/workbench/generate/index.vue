@@ -5,8 +5,12 @@
         <imageSelect :mode="modelParmas.mode as VideoMode" v-model="imageList" :storyboard-list="storyboardList" />
       </div>
     </div>
-    <div class="modelSelect">
+    <div class="modelSelect f ac jb">
       <modeMenu v-model="modelParmas" :modeOptions="modeOptions" :trackId="currentTrack?.id" :modeList="modeList" @modeChange="modeChange" />
+      <t-button @click="handleOpenInJianying" :loading="isOpeningJianying" title="在剪映中打开">
+        <template #icon><i-film size="16" style="margin-right: 4px" /></template>
+        {{ isOpeningJianying ? "正在打开..." : "在剪映中打开" }}
+      </t-button>
     </div>
     <div class="generate ac">
       <div class="prompt" v-if="currentTrack">
@@ -54,12 +58,68 @@ import videoCard from "./components/video.vue";
 import "@/views/production/components/workbench/type/type";
 import axios from "@/utils/axios";
 import projectStore from "@/stores/project";
+import settingStore from "@/stores/setting";
 import promptEditor from "@/components/promptEditor.vue";
 import imageListCacheStore from "@/stores/imageListCache";
 
 const { project } = storeToRefs(projectStore());
+const { isElectron } = storeToRefs(settingStore());
 const episodesId = inject<Ref<number>>("episodesId")!;
 const activeTrackIndex = ref(0);
+const isOpeningJianying = ref(false);
+
+const canvasSize = computed(() => {
+  const size = project.value?.videoRatio;
+  if (size === "1:1") return { w: 1080, h: 1080 };
+  if (size === "9:16") return { w: 1080, h: 1920 };
+  return { w: 1920, h: 1080 };
+});
+
+function extractOssPath(url: string): string {
+  const match = url.match(/\/oss\/(.+?)(?:\?|$)/);
+  return match ? match[1] : "";
+}
+
+async function handleOpenInJianying() {
+  if (!isElectron.value) {
+    window.$message.warning("仅支持客户端使用此功能");
+    return;
+  }
+  if (isOpeningJianying.value) return;
+  isOpeningJianying.value = true;
+  try {
+    const mediaFiles: { filePath: string; name: string; type: string; duration?: number }[] = [];
+
+    trackList.value.forEach((track) => {
+      track.videoList
+        .filter((v) => v.state === "已完成" && v.src)
+        .forEach((v) => {
+          const ossPath = extractOssPath(v.src);
+          if (ossPath) mediaFiles.push({ filePath: ossPath, name: `分镜视频`, type: "video" });
+        });
+    });
+
+    if (mediaFiles.length === 0) {
+      window.$message.warning("没有可导出的素材，请先生成视频");
+      return;
+    }
+
+    const { data } = await axios.post("/production/workbench/openInJianying", {
+      projectName: project.value?.name || "未命名项目",
+      canvasWidth: canvasSize.value.w,
+      canvasHeight: canvasSize.value.h,
+      mediaFiles,
+    });
+
+    if (data) {
+      window.$message.success(`已创建剪映草稿「${data.draftName}」，正在启动剪映...`);
+    }
+  } catch (err: any) {
+    window.$message.error(err.message || "打开剪映失败");
+  } finally {
+    isOpeningJianying.value = false;
+  }
+}
 const cacheStore = imageListCacheStore();
 const { getCache, setCache, removeCache, initCacheFromTrackList, warmUpUrls } = cacheStore;
 const { urlMap } = storeToRefs(cacheStore);

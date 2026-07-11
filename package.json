@@ -21,7 +21,7 @@
   "scripts": {
     "dev": "concurrently -n web,electron -c cyan,magenta -k \"yarn dev:web\" \"wait-on tcp:50188 && yarn dev:gui-vite\"",
     "dev:web": "yarn --cwd Toonflow-web dev",
-    "dev:gui-vite": "cross-env VITE_DEV=1 electronmon -r tsx scripts/main.ts",
+    "dev:gui-vite": "cross-env VITE_DEV=1 NODE_ENV=dev electronmon -r tsx scripts/main.ts",
     "lint": "tsc --noEmit",
     "build": "cross-env NODE_ENV=prod tsx scripts/build.ts",
     "dist": "yarn build && electron-builder",
