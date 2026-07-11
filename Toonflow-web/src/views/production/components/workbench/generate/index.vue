@@ -7,9 +7,9 @@
     </div>
     <div class="modelSelect f ac jb">
       <modeMenu v-model="modelParmas" :modeOptions="modeOptions" :trackId="currentTrack?.id" :modeList="modeList" @modeChange="modeChange" />
-      <t-button @click="handleOpenInJianying" :loading="isOpeningJianying" title="在剪映中打开">
+      <t-button @click="handleOpenInJianying" :loading="isOpeningJianying" title="前往剪映">
         <template #icon><i-film size="16" style="margin-right: 4px" /></template>
-        {{ isOpeningJianying ? "正在打开..." : "在剪映中打开" }}
+        {{ isOpeningJianying ? "正在打开..." : "前往剪映" }}
       </t-button>
     </div>
     <div class="generate ac">
@@ -198,10 +198,18 @@ function modeChange(newVal: string) {
         currentTrack.value.prompt = "";
         dialog.destroy();
         modelParmas.value.mode = newVal;
+        // 同步 mode 到 project store，避免下次进入时被重置
+        if (project.value) {
+          project.value.mode = newVal;
+        }
       },
     });
   } else if (newVal) {
     modelParmas.value.mode = newVal;
+    // 同步 mode 到 project store，避免下次进入时被重置
+    if (project.value) {
+      project.value.mode = newVal;
+    }
   }
 }
 const modeList = computed(() => {
