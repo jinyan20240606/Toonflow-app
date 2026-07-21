@@ -366,3 +366,5 @@ interface TTSConfig {
 const ttsRequest = async (ttsConfig: TTSConfig, ttsModel: TTSModel) => {
   throw new Error("Vidu 暂不支持语音合成（TTS）");
 };
+exports.ttsRequest = ttsRequest;
+

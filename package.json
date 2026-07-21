@@ -99,5 +99,11 @@
     "@rmp135/sql-ts": {
       "better-sqlite3": "^12.8.0"
     }
+  },
+  "electronmon": {
+    "patterns": [
+      "!data/oss/**",
+      "!data/database/**"
+    ]
   }
 }

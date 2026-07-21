@@ -9,6 +9,12 @@ import postcsspxtoviewport from "postcss-px-to-viewport";
 
 export default defineConfig({
   base: "./",
+  optimizeDeps: {
+    exclude: ["monaco-editor", "monaco-editor-vue3"],
+  },
+  worker: {
+    format: "es",
+  },
   build: {
     // 构建产物直接输出到后端的 data/web，供 Electron 打包与生产环境读取
     outDir: fileURLToPath(new URL("../data/web", import.meta.url)),

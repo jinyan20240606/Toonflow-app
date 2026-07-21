@@ -49,16 +49,19 @@ export default router.post(
     const models = await u.db("o_vendorConfig").where("id", id).first("models");
     if (models?.models) {
       const existingModels = JSON.parse(models.models);
-      const modelIndex = existingModels.findIndex((m: any) => m.modelName !== modelName);
-      if (modelIndex === -1) {
-        existingModels.push(model);
+      const updatedModels = existingModels.map((item: any) => (item.modelName === modelName ? model : item));
+      const dedupedModels = updatedModels.filter(
+        (item: any, index: number, list: any[]) => list.findIndex((m: any) => m.modelName === item.modelName) === index,
+      );
+      const hasTargetModel = dedupedModels.some((item: any) => item.modelName === model.modelName);
+      if (!hasTargetModel) {
+        dedupedModels.push(model);
       }
-      existingModels[modelIndex] = model;
       await u
         .db("o_vendorConfig")
         .where("id", id)
         .update({
-          models: JSON.stringify(existingModels),
+          models: JSON.stringify(dedupedModels),
         });
     }
     res.status(200).send(success("更新成功"));

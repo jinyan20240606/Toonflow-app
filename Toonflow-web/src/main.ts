@@ -18,6 +18,18 @@ Log.setLogLevel(Log.warn);
 import "md-editor-v3/lib/style.css";
 import "splitpanes/dist/splitpanes.css";
 
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+
+self.MonacoEnvironment = {
+  getWorker(_: string, label: string) {
+    if (label === "typescript" || label === "javascript") {
+      return new tsWorker();
+    }
+    return new editorWorker();
+  },
+};
+
 import "./assets/main.scss";
 
 import { imageOptimizer } from '@/utils/imageOptimizer'
