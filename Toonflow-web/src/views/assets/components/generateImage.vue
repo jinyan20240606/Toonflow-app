@@ -23,7 +23,7 @@
                 theme="image"
                 :abridgeName="[10, 8]"
                 draggable
-                action=""
+                :requestMethod="() => Promise.resolve({ status: 'success', response: {} })"
                 accept="image/*"
                 :showImageFileName="showImageFileName" />
             </div>
@@ -108,7 +108,7 @@
               <div class="customUpload">
                 <t-upload
                   ref="customUploadRef"
-                  action=""
+                  :requestMethod="() => Promise.resolve({ status: 'success', response: {} })"
                   v-model="customFileList"
                   :disabled="generateLoading"
                   :autoUpload="false"
@@ -392,6 +392,18 @@ async function onClick() {
     .uploadReferenceImage {
       .upload {
         margin-top: 10px;
+        :deep(.t-upload__dragger-progress-cancel) {
+          .t-button__text {
+            font-size: 0;
+            &::after {
+              content: "删除图片";
+              font-size: 14px;
+            }
+          }
+        }
+        :deep(.t-upload__dragger-upload-btn) {
+          display: none;
+        }
       }
     }
     .rawPicturePrompt {
