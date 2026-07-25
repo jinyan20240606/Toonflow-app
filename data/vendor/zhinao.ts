@@ -292,24 +292,38 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
         : {}),
     };
   } else {
-    body = {
-      model: model.modelName,
-      prompt: config.prompt,
-      ...(isImageEdit ? { image_urls: imageUrls } : {}),
-      size:
-        config.aspectRatio === "16:9"
-          ? config.size === "1K"
-            ? "1600x900"
-            : config.size === "2K"
-              ? "2848x1600"
-              : "4096x2304"
-          : config.size === "1K"
-            ? "900x1600"
-            : config.size === "2K"
-              ? "1600x2848"
-              : "2304x4096",
-      metadata: { response_format: "url", sequential_image_generation: "disabled", stream: false, watermark: false },
-    };
+    const isDoubaoSeedream = /(^|\/)doubao-seedream/i.test(lowerName) || lowerName.includes("seedream");
+    if (isDoubaoSeedream) {
+      body = {
+        model: model.modelName,
+        prompt: config.prompt,
+        extra_body: {
+          ...(isImageEdit ? { image: imageUrls } : {}),
+          sequential_image_generation: "disabled",
+          size: config.size,
+          watermark: false,
+        },
+      };
+    } else {
+      body = {
+        model: model.modelName,
+        prompt: config.prompt,
+        ...(isImageEdit ? { image_urls: imageUrls } : {}),
+        size:
+          config.aspectRatio === "16:9"
+            ? config.size === "1K"
+              ? "1600x900"
+              : config.size === "2K"
+                ? "2848x1600"
+                : "4096x2304"
+            : config.size === "1K"
+              ? "900x1600"
+              : config.size === "2K"
+                ? "1600x2848"
+                : "2304x4096",
+        metadata: { response_format: "url", sequential_image_generation: "disabled", stream: false, watermark: false },
+      };
+    }
   }
 
   logger(`[imageRequest] 使用 ${imageGeneratePath} 图像接口，模型: ${model.modelName}，参考图数量: ${imageUrls.length}`);

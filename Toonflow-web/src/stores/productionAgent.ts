@@ -250,13 +250,13 @@ function makeProductionAgentStore(projectId: string) {
               if (findData) {
                 item.state = findData.state;
                 item.src = findData.src;
+                item.reason = findData.reason ?? "";
               }
             });
           }
         }
         return data;
       } catch (e) {
-        window.$message.error((e as any)?.message);
         // 请求异常时恢复分镜状态，避免一直处于"生成中"转圈
         flowData.value.storyboard.forEach((item) => {
           if (allIds.includes(item.id!) && item.state === "生成中") {
@@ -264,6 +264,7 @@ function makeProductionAgentStore(projectId: string) {
             item.reason = (e as any)?.message ?? "生成请求失败";
           }
         });
+        throw e;
       }
     }
     async function batchGenerateAssets(allIds: number[]) {

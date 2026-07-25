@@ -269,9 +269,20 @@ async function batchGenerateImage() {
   try {
     await productionAgentStore().batchGenerateStoryboard(selectedIds.value, true);
     window.$message.success($t("workbench.production.node.storyboard.batchGenerateSuccess"));
+    storyboard.value.forEach((item) => {
+      if (selectedIds.value.includes(item.id!)) {
+        item.reason = "";
+      }
+    });
     selectedIds.value = [];
-  } catch (e) {
-    window.$message.error($t("workbench.production.node.storyboard.batchGenerateFailed"));
+  } catch (e: any) {
+    const message = e?.message || $t("workbench.production.node.storyboard.batchGenerateFailed");
+    storyboard.value.forEach((item) => {
+      if (selectedIds.value.includes(item.id!)) {
+        item.reason = message;
+      }
+    });
+    window.$message.error(message);
   } finally {
     generateLoading.value = false;
   }
