@@ -65,27 +65,29 @@ export default router.post(
       await u.db("o_assets").where("id", item.id).update({ imageId: imageId });
     }
 
-    const imageData: { id: number; state: string; src: string }[] = [];
     res.status(200).send(success("开始生成资产图片"));
-    const generateSingleAsset = async (item: any) => {
+    const generateSingleAsset = async (item: any): Promise<{ id: number; state: string; src: string } | undefined> => {
       const imageId = imageIdMap[item.id!];
-      const typeConfig = promptRecord[item.type!] || promptRecord["role"];
+      // 取消检查：若已被取消（state=生成失败）则跳过生成
+      const cancelData = await u.db("o_image").where("id", imageId).select("state").first();
+      if (cancelData?.state === "生成失败") return;
+      try {
+        const typeConfig = promptRecord[item.type!] || promptRecord["role"];
 
-      const { text } = await u.Ai.Text("universalAi").invoke({
-        system: `${typeConfig.prompt}`,
-        messages: [
-          {
-            role: "user",
-            content: `
-            父级资产描述: ${item.parentDescribe || "无详细描述"}
-            当前资产描述: ${item.describe || "无详细描述"}`,
-          },
-        ],
-      });
+        const { text } = await u.Ai.Text("universalAi").invoke({
+          system: `${typeConfig.prompt}`,
+          messages: [
+            {
+              role: "user",
+              content: `
+              父级资产描述: ${item.parentDescribe || "无详细描述"}
+              当前资产描述: ${item.describe || "无详细描述"}`,
+            },
+          ],
+        });
         await u.db("o_assets").where("id", item.id).update({ prompt: text });
 
-      const imageBase64 = imageUrlRecord[item.assetsId!] ? await u.oss.getImageBase64(imageUrlRecord[item.assetsId!]) : null;
-      try {
+        const imageBase64 = imageUrlRecord[item.assetsId!] ? await u.oss.getImageBase64(imageUrlRecord[item.assetsId!]) : null;
         const repeloadObj = {
           prompt: text,
           size: projectSettingData?.imageQuality as "1K" | "2K" | "4K",
@@ -127,8 +129,7 @@ export default router.post(
     // 按 concurrentCount 分批并发执行
     for (let i = 0; i < assetsDataArr.length; i += concurrentCount) {
       const batch = assetsDataArr.slice(i, i + concurrentCount);
-      const batchResults = await Promise.all(batch.map(generateSingleAsset));
-      imageData.push(...batchResults);
+      await Promise.all(batch.map(generateSingleAsset));
     }
   },
 );

@@ -92,6 +92,9 @@ export default router.post(
     );
 
     const generateTask = async (item: (typeof storyboardData)[number]) => {
+      // 取消检查：若已被取消（state=生成失败）则跳过生成
+      const cancelData = await u.db("o_storyboard").where("id", item.id).select("state").first();
+      if (cancelData?.state === "生成失败") return;
       const repeloadObj = {
         prompt: item.prompt!,
         size: projectSettingData?.imageQuality as "1K" | "2K" | "4K",
@@ -117,7 +120,8 @@ export default router.post(
           state: "已完成",
         });
       } catch (e) {
-        u.db("o_storyboard")
+        await u
+          .db("o_storyboard")
           .where("id", item.id)
           .update({
             filePath: "",

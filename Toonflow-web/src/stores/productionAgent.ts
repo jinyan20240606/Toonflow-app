@@ -257,6 +257,13 @@ function makeProductionAgentStore(projectId: string) {
         return data;
       } catch (e) {
         window.$message.error((e as any)?.message);
+        // 请求异常时恢复分镜状态，避免一直处于"生成中"转圈
+        flowData.value.storyboard.forEach((item) => {
+          if (allIds.includes(item.id!) && item.state === "生成中") {
+            item.state = "生成失败";
+            item.reason = (e as any)?.message ?? "生成请求失败";
+          }
+        });
       }
     }
     async function batchGenerateAssets(allIds: number[]) {
@@ -291,7 +298,19 @@ function makeProductionAgentStore(projectId: string) {
           });
         }
         return data;
-      } catch (e) {}
+      } catch (e) {
+        // 请求异常时恢复资产状态，避免一直处于"生成中"转圈
+        flowData.value.assets.forEach((asset) => {
+          if (asset.derive) {
+            asset.derive.forEach((derive) => {
+              if (allIds.includes(derive.id) && derive.state === "生成中") {
+                derive.state = "生成失败";
+                derive.errorReason = (e as any)?.message ?? "生成请求失败";
+              }
+            });
+          }
+        });
+      }
     }
     const assetsNotStateImageIds = computed(() => {
       const ids: number[] = [];

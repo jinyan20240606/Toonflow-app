@@ -47,8 +47,13 @@
                       </div>
                     </template>
                   </t-image>
-                  <div v-else class="generatingPlaceholder" @click="editStoryboaryImage(item, [])">
-                    <t-loading v-if="item.state === '生成中'" size="small" />
+                  <div v-else class="generatingPlaceholder" @click="item.state === '生成中' ? undefined : editStoryboaryImage(item, [])">
+                    <template v-if="item.state === '生成中'">
+                      <t-loading size="small" />
+                      <t-tag class="cancelGenerationBtn" theme="danger" size="small" @click.stop="cancelGenerationFn(item)">
+                        {{ $t("workbench.cornerScape.cancelGeneration") }}
+                      </t-tag>
+                    </template>
                     <t-tooltip v-else-if="item.state == '生成失败'" :content="item?.reason">
                       <span style="color: #ff4d4f">生成失败</span>
                     </t-tooltip>
@@ -270,6 +275,29 @@ async function batchGenerateImage() {
   } finally {
     generateLoading.value = false;
   }
+}
+// 取消生成
+async function cancelGenerationFn(item: Storyboard) {
+  const dialog = DialogPlugin.confirm({
+    header: $t("workbench.assets.confirmCancellation"),
+    body: $t("workbench.assets.confirmAgain"),
+    confirmBtn: $t("workbench.assets.sure"),
+    cancelBtn: $t("workbench.assets.cancelBtn"),
+    theme: "warning",
+    onConfirm: async () => {
+      try {
+        await axios.post("/production/storyboard/cancelStoryboardGenerate", {
+          ids: [item.id],
+        });
+        item.state = "生成失败";
+        window.$message.success($t("workbench.cornerScape.cancelGeneration"));
+      } catch (e: any) {
+        window.$message.error(e.message ?? $t("workbench.cornerScape.cancelGeneration") + "失败");
+      } finally {
+        dialog.destroy();
+      }
+    },
+  });
 }
 function editStoryboaryImage(item: Storyboard, images: string[], insertAfterIndex: number | null = null) {
   currentRowStoryboardInfo.value = {
@@ -589,6 +617,10 @@ function editInfo(item: Storyboard) {
     gap: 6px;
     background-color: var(--td-bg-color-container-hover, #f5f5f5);
     font-size: 12px;
+
+    .cancelGenerationBtn {
+      cursor: pointer;
+    }
   }
 
   .frameImg {
