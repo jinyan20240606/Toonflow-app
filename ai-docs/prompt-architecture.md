@@ -564,7 +564,368 @@ assistant:decision: 好的，分镜表已完成，可以进入分镜面板写入
 
 ---
 
-## 六、关键设计原则
+## 六、分镜面板写入模式详解（流程A vs 流程C）
+
+### 6.1 两种模式的本质区别
+
+分镜面板写入（阶段5）有两条路径，由项目模型的**多参标志**决定：
+
+| | 流程A · 纯文本多参模式 | 流程C · 首位帧模式 |
+|---|---|---|
+| **触发条件** | 模型支持多参（`Array.isArray(videoMode) === true`） | 模型不支持多参（单图/首尾帧模式） |
+| **是否生成生图prompt** | ❌ 不生成，`prompt=null` | ✅ 完整生成 |
+| **是否生成分镜图** | ❌ `shouldGenerateImage="false"` | ✅ `shouldGenerateImage="true"` |
+| **写入单位** | 以分镜表的「组」为单位 | 以分镜表的「行」为单位 |
+| **videoDesc 内容** | 承接上镜段 + 分镜行原文搬运 | 从分镜表字段整合的结构化描述 |
+| **加载技法** | 不加载任何技法 | 加载 `storyboard_prompt_techniques` + `director_storyboard` |
+| **后续流程** | 直接去视频工作台生成视频 | 先阶段6生成分镜图，再去视频工作台 |
+
+### 6.1.1 写入单位对视频生成的影响
+
+**流程A（以「组」为单位）**：
+- 分镜表的一个「组」包含多个连续镜头（如片段一含镜头1、2、3）
+- 这些镜头被合并为**一个 `track`（轨道）**，生成**一段完整的视频**
+- 视频模型收到的是：一组连续镜头的 `videoDesc` + 多张参考图（角色图+场景图+道具图）
+- 模型自己理解镜头间的连贯性，生成一段连续视频
+- 适合多参模型，因为模型能同时看到所有参考图
+
+**流程C（以「行」为单位）**：
+- 分镜表的每一「行」是一个独立镜头
+- 每行生成**一个独立的分镜图**（作为视频首帧）
+- 每行对应**一个 `track`（轨道）**，每个轨道生成**一段独立的短视频**
+- 用户可以在视频工作台中，把多个轨道的视频片段**手动拖到剪辑台**拼接
+- 适合非多参模型，因为每段视频只有一张首帧图作为参考
+
+**实际效果对比**：
+
+```
+流程A（组为单位）：
+  片段一（镜头1+2+3）→ track1 → 一段完整视频（模型自己处理镜头衔接）
+  片段二（镜头4+5）  → track2 → 另一段完整视频
+
+流程C（行为单位）：
+  镜头1 → track1 → 分镜图1 → 短视频1
+  镜头2 → track2 → 分镜图2 → 短视频2
+  镜头3 → track3 → 分镜图3 → 短视频3
+  （用户后续在剪辑台拼接）
+```
+
+**关键**：流程A的 `track` 是**叙事单位**（一组连续镜头），流程C的 `track` 是**技术单位**（一个独立镜头对应一个视频生成任务）。
+
+### 6.2 为什么这样设计？
+
+```
+多参:是 ──→ 流程A ──→ 不生成分镜图 ──→ 视频模型自己有多张参考图可用
+多参:否 ──→ 流程C ──→ 生成分镜图 ──→ 分镜图作为视频的首帧参考图
+```
+
+- **多参模型**（如 KlingOmni、Seedance 2.0 多参模式）：可以同时传入角色图、场景图、道具图等多张参考图，视频模型自己理解画面构成，不需要分镜图。所以流程A只做文本搬运，不生成任何图片。
+- **非多参模型**（如 Wan2.6、通用首尾帧模式）：只能传一张图，所以需要先生成一张**分镜图作为首帧**，视频模型基于这张图生成后续画面。所以流程C要完整生成生图prompt，后续阶段6生成分镜图。
+
+### 6.3 流程A（纯文本多参模式）详细流程
+
+**Skill**: [`production_execution_storyboard_panel.md`](data/skills/production_execution_storyboard_panel.md) → 流程A
+
+**第1步**：读取 `get_flowData("script")`、`get_flowData("storyboardTable")`
+- 不加载任何提示词技法
+- 分镜表已按「场→组」预先分组，直接沿用
+
+**第2步**：逐组拼接 `videoDesc`
+```
+videoDesc = [承接上镜段（同场内非首组）] + [该组分镜行原文]
+```
+- 承接上镜段：通读上一组末行「画面描述+角色动作」，推导过渡句
+- 分镜行原文：**一字不改**搬运（序号/画面描述/时长/景别/运镜/角色动作/朝向/空间关系/台词/音效）
+
+**第3步**：逐组调用 `add_flowData_storyboard`
+- `prompt=null`，`shouldGenerateImage="false"`
+- `track` 按组顺序累加，跨场不重置
+- `duration` 取组标注时长
+- `associateAssetsIds` 取该场引用资产ID列表
+
+### 6.4 流程C（首位帧模式）详细流程
+
+**Skill**: [`production_execution_storyboard_panel.md`](data/skills/production_execution_storyboard_panel.md) → 流程C
+
+**第1步**：读取数据 + 激活技法
+- 读取 `get_flowData("script")`、`get_flowData("storyboardTable")`
+- **不读取** `scriptPlan`（分镜表已是导演规划的完整落地）
+- 激活技法：
+  - [`storyboard_prompt_techniques`](data/skills/production_skills/storyboard_prompt_techniques.md) — 通用提示词技法
+  - `director_storyboard` — 风格专属技法
+
+**第2步**：人物空间位置与朝向预分析
+- 通读全部分镜表，建立全局基准表
+- 从「空间关系」列提取画面位置（左前/中前/右前/左中/中中/右中/左后/中后/右后）
+- 从「朝向」列提取朝向信息
+- 标记位置/朝向变更点
+
+**第3步**：确定分组
+- **不分组**，每条分镜独立一组，`track` 按行递增
+
+**第4步**：图像资产标注
+```
+@图1 为{资产名称}角色 @图2 为{资产名称}场景 ...
+```
+- 正文中所有角色/场景/道具名必须用 `@图N` 替代
+
+**第5步**：生成 videoDesc
+- 从分镜表行数据整合为结构化视频描述文本
+- 禁止包含光影/色温/明暗/色调描述
+
+**第6步**：生成 prompt（生图提示词）并校验
+
+严格按 [`storyboard_prompt_techniques.md`](data/skills/production_skills/storyboard_prompt_techniques.md) 的规则：
+
+**三段式结构**：
+```
+【画面】→ 画面描述完整转写（主干，信息密度最高）
+【光影】→ 光源方向、色调、明暗关系（独立成段）
+【风格】→ 风格锚定词 + 画质锁定词（辅助修饰，简短）
+```
+
+**核心原则**：
+- **分镜表内容忠实性原则**：提示词生成是格式转换，不是创意写作
+- **首帧识别原则**：连续动作取起始瞬间凝固态，静态瞬间直接按描述生成
+- **`@图N` 替代名称**：正文中所有角色/场景/道具名必须用 `@图N` 替代
+- **朝向/空间关系显式标注**：每个可见角色必须声明场景内绝对位置、画面位置、朝向
+- **多角色互动距离标注**：如"面对面相距约一臂""隔中控台"
+- **机位关系标注**：如"平视机位""低角度仰拍""过@图N 肩膀"
+
+**输出模式**（二选一）：
+| 模式 | 目标模型 | 格式 |
+|------|---------|------|
+| 模式A | Seedream/豆包 | 中文 Prompt，三段式 |
+| 模式B | Nanobanana/Gemini | 英文 JSON Prompt |
+
+**风格注入**：风格专属技法（`director_storyboard`）提供：
+- 情绪→面容/眼神词映射表
+- 光影氛围词库
+- 场景质感约束词
+- 固定风格锚定词
+- 画质锁定词
+- 负向词模板
+
+**六项忠实性校验**（逐字段比对分镜表原始内容）：
+1. 画面描述所有视觉主体和空间关系完整保留
+2. 情绪基调一致
+3. 无光影/色调词汇
+4. 景别匹配
+5. 角色动作语义一致（按首帧原则转换）
+6. 角色朝向与基准表一致
+7. 每个可见角色显式声明空间位置
+8. 多角色同框标注互动距离关系
+9. 机位关系显式标注
+
+**第7步**：逐行调用 `add_flowData_storyboard` 写入
+- `shouldGenerateImage="true"`，后续阶段6生成分镜图
+
+---
+
+## 七、视频提示词生成详解
+
+### 7.1 触发时机
+
+视频提示词生成**不在制作流水线（阶段1-6）内**，而是用户在**视频工作台**操作时触发。
+
+### 7.2 调用入口
+
+两个API端点：
+- [`generateVideoPrompt.ts`](src/routes/production/workbench/generateVideoPrompt.ts) — 单条生成
+- [`batchGeneratePrompt.ts`](src/routes/production/workbench/batchGeneratePrompt.ts) — 批量生成
+
+### 7.3 输入数据组装
+
+```
+system: videoPromptGeneration (模型对应的prompt模板)
+assistant: visualManual (风格视觉约束)
+user: 模型名称 + 资产信息 + 分镜信息
+```
+
+**数据来源**：
+- **`videoPromptGeneration`**（system prompt）：按模型+模式匹配 `modelPrompt/video/` 下的文件
+- **`visualManual`**（assistant message）：通过 `getArtPrompt(artStyle, "art_skills", "art_storyboard_video")` 加载风格专属视频提示词约束
+- **用户消息**：组装后的资产信息 + 分镜 `<storyboardItem>` XML
+
+### 7.4 模式路由
+
+根据模型名称和 `mode` 参数，从 [`data/modelPrompt/video/`](data/modelPrompt/video/) 加载对应的prompt模板：
+
+| 条件 | 模板文件 | 输出格式 |
+|------|---------|---------|
+| Seedance 2.0 | [`seedance2Multi-parameterMode.md`](data/modelPrompt/video/seedance2Multi-parameterMode.md) | 中文三段论（主体定义→镜头分镜→风格约束） |
+| Wan2.6 | [`wan2.6Single-imageFirstFrameMode.md`](data/modelPrompt/video/wan2.6Single-imageFirstFrameMode.md) | 英文叙事式，单图首帧 |
+| 其他 + 多参:是 | [`universalMulti-parameterMode.md`](data/modelPrompt/video/universalMulti-parameterMode.md) | 英文 `[References]` + `[Instruction]` |
+| 其他 + 首尾帧模式 | [`universalFirstAndLastFrameMode.md`](data/modelPrompt/video/universalFirstAndLastFrameMode.md) | 英文五维度（Visual/Motion/Camera/Audio/Narrative） |
+
+### 7.5 各模式详解
+
+#### 模式1：通用多参模式（[`universalMulti-parameterMode.md`](data/modelPrompt/video/universalMulti-parameterMode.md)）
+
+- **输入**：`videoDesc` 解析12个字段（画面描述/场景/资产/时长/景别/运镜/角色动作/情绪/光影/台词/音效/资产ID）
+- **输出格式**：
+  ```
+  [References]
+  @图1 : [资产参考图]
+  @图2 : [分镜图]
+  
+  [Instruction]
+  Based on the storyboard @图2:
+  @图1 {动作描述},
+  set in the {场景描述} of @图{场景编号},
+  {镜头/运镜描述},
+  {情感基调},
+  {台词描述/No dialogue},
+  {音效描述}.
+  ```
+- **关键**：`@图N` 引用资产和分镜图，Instruction 全英文
+
+#### 模式2：通用首尾帧模式（[`universalFirstAndLastFrameMode.md`](data/modelPrompt/video/universalFirstAndLastFrameMode.md)）
+
+- **核心**：纯文本提示词，**不使用 `@图N` 引用**
+- **输出格式**（五维度）：
+  ```
+  [Visual] → 主体外观/站位/场景描述/视觉风格标签
+  [Motion] → 0s-Xs: 动作时间轴
+  [Camera] → 镜头类型/运镜/全程单一连贯镜头
+  [Audio] → 台词/音效时间轴
+  [Narrative] → 情节点概述
+  ```
+- **关键**：全程单一连贯镜头，时间轴分段，每个主体标注说话状态
+
+#### 模式3：Seedance 2.0（[`seedance2Multi-parameterMode.md`](data/modelPrompt/video/seedance2Multi-parameterMode.md)）
+
+- **输出格式**（三段论）：
+  ```
+  第一段：将 @图片1 中的[特征] 定义为 <主体1>（名称）
+  第二段：镜头1：{景别+运镜}，<主体1> {动作描述}。{台词/音效}。
+  第三段：{风格标签}；高清，细节丰富，电影质感；{约束包}
+  ```
+- **关键**：中文提示词，`<主体N>`/`<场景N>`/`<道具N>` 标签引用，音色生成规则，承接上镜处理
+
+#### 模式4：Wan2.6（[`wan2.6Single-imageFirstFrameMode.md`](data/modelPrompt/video/wan2.6Single-imageFirstFrameMode.md)）
+
+- **核心**：单图首帧，叙事式英文提示词，禁止标签堆砌
+- **输出格式**：像写小说一样描写画面，风格基调→主体动作+场景+光线→镜头收尾
+
+### 7.6 视觉风格注入
+
+视频提示词的视觉风格通过 **`visualManual`**（assistant message）注入，内容来自：
+- [`prefix.md`](data/skills/art_skills/2D_90s_japanese_anime/prefix.md) — 全局美学基础（风格基因、色彩盘、约束规则）
+- [`art_storyboard_video.md`](data/skills/art_skills/2D_90s_japanese_anime/art_prompt/art_storyboard_video.md) — 视频提示词风格标签（按模式提供英文/中文标签）
+
+---
+
+## 八、数据依赖关系总结
+
+### 8.1 各阶段依赖什么数据？
+
+| 阶段 | 依赖数据 | 是否依赖剧本 |
+|------|---------|------------|
+| 阶段1 导演规划 | script + assets + scriptPlan | ✅ 直接依赖 |
+| 阶段2 衍生资产分析 | script + assets + scriptPlan | ✅ 直接依赖 |
+| 阶段3 衍生资产生成 | 衍生资产清单 | ❌ |
+| **阶段4 构建分镜表** | **script + assets + scriptPlan** | **✅ 直接依赖** |
+| **阶段5 分镜面板写入** | **storyboardTable**（+ script 仅读取但不使用） | **❌ 不依赖** |
+| 阶段6 分镜图生成 | storyboard（分镜面板） | ❌ |
+| **视频提示词生成** | **storyboard(videoDesc) + assets** | **❌ 不依赖** |
+
+### 8.2 剧本信息如何向下游传递？
+
+```
+剧本(script) ──→ 分镜表(storyboardTable) ──→ 分镜面板(storyboard) ──→ 视频提示词
+    ↑                    ↑                           ↑
+ 直接依赖             不再依赖                     不再依赖
+                      （分镜表已吸收剧本）         （videoDesc已吸收分镜表内容）
+```
+
+**剧本的信息经过两次"蒸馏"**：
+1. **剧本 → 分镜表**：剧本原文被拆解为结构化字段（画面描述/场景/景别/运镜/角色动作/朝向/空间关系/情绪/台词/音效）
+2. **分镜表 → 分镜面板(videoDesc)**：分镜表行数据被拼接/映射为 `videoDesc` 文本
+3. **分镜面板(videoDesc) → 视频提示词**：`videoDesc` 被解析为12个字段，按模型格式生成视频提示词
+
+下游阶段（分镜面板写入、视频提示词生成）**不再直接接触剧本**，它们操作的是上游已经结构化/文本化的产物。这种设计保证了数据流的单向性和各阶段的解耦。
+
+### 8.3 完整Prompt链路图
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   分镜表生成（阶段4）                      │
+│  Skill: production_execution_storyboard_table.md         │
+│  输入: script + assets + scriptPlan                      │
+│  输出: storyboardTable (结构化分镜表)                     │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│             分镜面板写入（阶段5）                          │
+│  Skill: production_execution_storyboard_panel.md         │
+│                                                          │
+│  ┌─ 多参:是 ─────────────────────────────────┐           │
+│  │ 流程A: 纯文本多参模式                       │           │
+│  │ - 不加载技法                               │           │
+│  │ - prompt=null, shouldGenerateImage=false   │           │
+│  │ - videoDesc = 承接上镜 + 分镜行原文          │           │
+│  └────────────────────────────────────────────┘           │
+│                                                          │
+│  ┌─ 多参:否 ─────────────────────────────────┐           │
+│  │ 流程C: 首位帧模式                          │           │
+│  │ - 激活技法:                                │           │
+│  │   storyboard_prompt_techniques.md          │           │
+│  │   + director_storyboard (风格专属)          │           │
+│  │ - 生成 prompt (生图提示词)                  │           │
+│  │   三段式: 【画面】【光影】【风格】            │           │
+│  │ - @图N 绑定参考图                          │           │
+│  │ - 六项忠实性校验                           │           │
+│  │ - shouldGenerateImage=true                 │           │
+│  └────────────────────────────────────────────┘           │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│             分镜图生成（阶段6）                            │
+│  Skill: production_execution_storyboard_gen.md           │
+│  调用 generate_storyboard_images({ ids }) 异步生成        │
+└─────────────────────────────────────────────────────────┘
+
+                       ═══ 分界线 ═══
+                  （视频工作台，用户手动触发）
+
+┌─────────────────────────────────────────────────────────┐
+│             视频提示词生成                                │
+│  API: generateVideoPrompt.ts / batchGeneratePrompt.ts    │
+│                                                          │
+│  System Prompt: modelPrompt/video/ 下的模板文件           │
+│    ├─ seedance2Multi-parameterMode.md                    │
+│    ├─ wan2.6Single-imageFirstFrameMode.md                │
+│    ├─ universalMulti-parameterMode.md                    │
+│    └─ universalFirstAndLastFrameMode.md                  │
+│                                                          │
+│  Assistant Message: visualManual (风格视觉约束)           │
+│    ├─ prefix.md (全局美学基础)                            │
+│    └─ art_storyboard_video.md (视频风格标签)              │
+│                                                          │
+│  User Message: 模型名称 + 资产信息 + 分镜XML              │
+│                                                          │
+│  输出: 视频提示词（格式因模型而异）                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.4 生图prompt vs 视频prompt 关键差异
+
+| 维度 | 生图提示词 (prompt) | 视频提示词 (video prompt) |
+|------|-------------------|--------------------------|
+| **生成时机** | 阶段5（制作流水线内） | 视频工作台（用户手动触发） |
+| **输入源** | 分镜表行数据 | 分镜面板 `videoDesc` + 资产信息 |
+| **风格来源** | `director_storyboard` 技法（风格专属） | `art_storyboard_video.md` + `prefix.md` |
+| **输出语言** | 中文（模式A）/ 英文JSON（模式B） | 英文（通用模式）/ 中文（Seedance） |
+| **参考图绑定** | `@图N` 绑定资产参考图 | `@图N` 或纯文本，因模式而异 |
+| **核心约束** | 分镜表内容忠实性 + 首帧原则 | videoDesc 12字段严格遵循 |
+| **是否生成分镜图** | 是（shouldGenerateImage=true） | 否（分镜图已存在） |
+
+---
+
+## 九、关键设计原则
 
 1. **System 是角色定义**：告诉 AI "你是谁、你的职责是什么、你的约束是什么"，来自可编辑的 `.md` 文件
 2. **Assistant 是上下文注入**：告诉 AI "当前项目的状态是什么、有哪些技能可用"，由代码动态拼装
@@ -572,3 +933,5 @@ assistant:decision: 好的，分镜表已完成，可以进入分镜面板写入
 4. **技能是懒加载的**：AI 先看技能清单（description），判断需要时再调用 `activate_skill` 加载完整内容，避免一次性塞入过多 token
 5. **格式约束追加在 system 末尾**：确保 AI 输出符合下游解析要求（XML 标签格式）
 6. **工具是 AI 与系统的双向通道**：`get_flowData` 读取前端状态，`add_flowData_storyboard` 写入前端状态，实现 AI ↔ 前端的实时双向同步
+7. **数据单向流动**：剧本 → 分镜表 → 分镜面板 → 视频提示词，下游不直接依赖上游原始数据，保证各阶段解耦
+8. **多参决定生图策略**：模型支持多参时不做分镜图（流程A），不支持多参时才生成分镜图作为首帧（流程C）
