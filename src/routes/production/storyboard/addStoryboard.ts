@@ -3,6 +3,7 @@ import u from "@/utils";
 import { z } from "zod";
 import { error, success } from "@/lib/responseFormat";
 import { validateFields } from "@/middleware/middleware";
+import recalcTrackDuration from "@/lib/recalcTrackDuration";
 const router = express.Router();
 interface Storyboard {
   id: number;
@@ -43,6 +44,10 @@ export default router.post(
       scriptId: scriptId,
       projectId: projectId,
     });
+
+    // 新增分镜后重算该轨道时长（新建轨道 duration 默认为空）
+    await recalcTrackDuration(scriptId);
+
     return res.status(200).send(success({ id }));
   },
 );

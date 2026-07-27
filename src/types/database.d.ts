@@ -1,4 +1,4 @@
-// @db-hash 1674c3fa6699c6c7fc88d5b3c83ec28e
+// @db-hash 13d3b27c3c57aa9c1f548907b808faaa
 //该文件由脚本自动生成，请勿手动修改
 
 export interface memories {
@@ -122,6 +122,7 @@ export interface o_project {
   'mode'?: string | null;
   'name'?: string | null;
   'projectType'?: string | null;
+  'scriptStyle'?: string | null;
   'type'?: string | null;
   'userId'?: number | null;
   'videoModel'?: string | null;

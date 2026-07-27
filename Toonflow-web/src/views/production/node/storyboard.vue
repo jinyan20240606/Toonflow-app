@@ -100,6 +100,7 @@
           {{ $t("workbench.production.node.storyboard.selectAll") }}
         </t-button>
         <t-button theme="danger" size="small" :disabled="!storyboard.length || !selectedIds.length" @click="handleDeleteSelected">批量删除</t-button>
+        <t-button theme="primary" size="small" :disabled="!canMergeSelected" @click="handleMerge">合并分镜</t-button>
       </div>
       <div class="ac" style="gap: 10px">
         <t-button block @click="previewAll" :disabled="!storyboard.length">{{ $t("workbench.production.node.storyboard.gridPreview") }}</t-button>
@@ -161,6 +162,19 @@ function setHoveredFrame(index: number | null) {
 function selectAll() {
   selectedIds.value = storyboard.value.map((s) => s.id!).filter(Boolean);
 }
+
+const selectedStoryboardItems = computed(() => storyboard.value.filter((item) => selectedIds.value.includes(item.id!)));
+const selectedStoryboardIndexes = computed(() =>
+  selectedIds.value.map((id) => storyboard.value.findIndex((item) => item.id === id)).filter((index) => index >= 0).sort((a, b) => a - b),
+);
+const canMergeSelected = computed(() => {
+  if (selectedIds.value.length < 2) return false;
+  if (selectedStoryboardItems.value.length !== selectedIds.value.length) return false;
+  const allNeedImage = selectedStoryboardItems.value.every((item) => Number(item.shouldGenerateImage) === 1);
+  if (!allNeedImage) return false;
+  return selectedStoryboardIndexes.value.every((index, i) => i === 0 || index === selectedStoryboardIndexes.value[i - 1] + 1);
+});
+
 function handleDeleteSelected() {
   const dialog = DialogPlugin.confirm({
     header: $t("workbench.assets.confirmDeleteHeader"),
@@ -189,6 +203,120 @@ function handleDeleteSelected() {
     },
   });
 }
+
+function handleMerge() {
+  if (!canMergeSelected.value) {
+    return window.$message.warning("仅支持合并列表中连续选中的非多参分镜");
+  }
+
+  const ids = [...selectedIds.value];
+  const selectedItems = storyboard.value.filter((s) => ids.includes(s.id!));
+  const sorted = ids.map((id) => selectedItems.find((s) => s.id === id)).filter(Boolean) as Storyboard[];
+  const firstIndex = storyboard.value.findIndex((s) => s.id === ids[0]);
+
+  const mergedDesc = sorted.map((s, i) => `【镜${i + 1}】${s.videoDesc || ""}`).join("\n");
+  const totalDuration = sorted.reduce((sum, s) => sum + Number(s.duration || 0), 0);
+  const inheritedPrompt = sorted[0]?.prompt || "";
+
+  const formData = reactive({
+    videoDesc: mergedDesc,
+    duration: totalDuration,
+  });
+
+  const bodyVNode = () =>
+    h("div", { class: "editInfoForm" }, [
+      h("div", { class: "editInfoField", style: "font-size:12px;color:var(--td-text-color-secondary);margin-bottom:12px" }, [
+        h("div", {}, "合并后将保留第一条分镜的 prompt 作为首帧参考，视频描述与时长按新的片段重新生成。"),
+      ]),
+      h("div", { class: "editInfoField" }, [
+        h("label", { class: "editInfoLabel" }, "合并后的画面描述"),
+        h(resolveComponent("t-textarea"), {
+          value: formData.videoDesc,
+          placeholder: "请编辑合并后的画面描述",
+          autosize: { minRows: 4, maxRows: 10 },
+          "onUpdate:value": (v: string) => (formData.videoDesc = v),
+        }),
+      ]),
+      h("div", { class: "editInfoField" }, [
+        h("label", { class: "editInfoLabel" }, "时长（秒）"),
+        h(resolveComponent("t-input-number"), {
+          value: formData.duration,
+          min: 1,
+          max: 60,
+          "onUpdate:value": (v: number) => (formData.duration = Number(v || 0)),
+          style: "width: 120px",
+        }),
+      ]),
+      h("div", { class: "editInfoField", style: "font-size:12px;color:var(--td-text-color-secondary)" }, [
+        h("label", { class: "editInfoLabel" }, "首帧参考 prompt："),
+        h("div", { style: "white-space:pre-wrap;line-height:1.6" }, inheritedPrompt || "第一条分镜暂无 prompt，将留空等待后续补充"),
+      ]),
+      h("div", { class: "editInfoField", style: "font-size:12px;color:var(--td-text-color-secondary)" }, [
+        h("label", { class: "editInfoLabel" }, "被合并的分镜："),
+        h(
+          "ul",
+          { style: "padding-left:16px;margin:4px 0" },
+          sorted.map((s) =>
+            h(
+              "li",
+              {},
+              `S${String(storyboard.value.indexOf(s) + 1).padStart(2, "0")} — ${s.videoDesc?.slice(0, 40) || s.prompt?.slice(0, 40) || "无描述"}...`,
+            ),
+          ),
+        ),
+      ]),
+    ]);
+
+  const confirmDialog = DialogPlugin.confirm({
+    header: `合并分镜（${ids.length}条 → 1条）`,
+    body: bodyVNode,
+    width: 560,
+    confirmBtn: {
+      content: "确认合并",
+      theme: "primary",
+      loading: false,
+    },
+    onConfirm: async () => {
+      if (!formData.videoDesc.trim()) {
+        return window.$message.warning("请填写合并后的画面描述");
+      }
+      if (Number(formData.duration) <= 0) {
+        return window.$message.warning("请填写正确的时长");
+      }
+      confirmDialog.update({ confirmBtn: { content: "合并中...", loading: true } });
+      try {
+        const { data } = await axios.post("/production/storyboard/mergeStoryboard", {
+          ids,
+          projectId: project.value?.id,
+          videoDesc: formData.videoDesc.trim(),
+          duration: Number(formData.duration),
+        });
+        storyboard.value = storyboard.value.filter((s) => !ids.includes(s.id!));
+        const insertIndex = firstIndex === -1 ? 0 : firstIndex;
+        storyboard.value.splice(insertIndex, 0, {
+          id: data.id,
+          trackId: data.trackId,
+          track: data.track,
+          prompt: data.prompt,
+          duration: data.duration,
+          state: data.state,
+          videoDesc: data.videoDesc,
+          src: data.src,
+          associateAssetsIds: data.associateAssetsIds,
+          shouldGenerateImage: data.shouldGenerateImage,
+        } as Storyboard);
+        selectedIds.value = [];
+        window.$message.success("合并成功，已保留第一条 prompt 作为首帧参考");
+      } catch (e: any) {
+        window.$message.error(e?.message || "合并失败");
+      } finally {
+        confirmDialog.update({ confirmBtn: { content: "确认合并", loading: false } });
+        confirmDialog.destroy();
+      }
+    },
+  });
+}
+
 const currentRow = ref<{
   flowId?: number | null;
   resultImages: { src: string; prompt: string }[];
@@ -220,7 +348,6 @@ async function downLoadImage() {
       },
       { responseType: "blob" },
     );
-    // 创建下载链接
     const url = URL.createObjectURL(res as unknown as Blob);
     const a = document.createElement("a");
     a.href = url;
@@ -287,153 +414,23 @@ async function batchGenerateImage() {
     generateLoading.value = false;
   }
 }
-// 取消生成
+
 async function cancelGenerationFn(item: Storyboard) {
-  const dialog = DialogPlugin.confirm({
-    header: $t("workbench.assets.confirmCancellation"),
-    body: $t("workbench.assets.confirmAgain"),
-    confirmBtn: $t("workbench.assets.sure"),
-    cancelBtn: $t("workbench.assets.cancelBtn"),
-    theme: "warning",
-    onConfirm: async () => {
-      try {
-        await axios.post("/production/storyboard/cancelStoryboardGenerate", {
-          ids: [item.id],
-        });
-        item.state = "生成失败";
-        window.$message.success($t("workbench.cornerScape.cancelGeneration"));
-      } catch (e: any) {
-        window.$message.error(e.message ?? $t("workbench.cornerScape.cancelGeneration") + "失败");
-      } finally {
-        dialog.destroy();
-      }
-    },
-  });
-}
-function editStoryboaryImage(item: Storyboard, images: string[], insertAfterIndex: number | null = null) {
-  currentRowStoryboardInfo.value = {
-    id: insertAfterIndex == null ? item?.id! : null,
-    insertAfterIndex,
-  };
-  currentRow.value = {
-    flowId: item?.flowId ?? null,
-    resultImages: [],
-    referanceImages: [],
-  };
-
-  if (currentRowStoryboardInfo.value.id) {
-    let imagesPush: string[] = [];
-
-    if (item.associateAssetsIds && item.associateAssetsIds.length > 0) {
-      const assetsImages: string[] = [];
-      for (const id of item.associateAssetsIds) {
-        // 先查顶层 asset
-        const asset = props.assetsData.find((a) => a.id === id);
-        if (asset) {
-          if (asset.src) assetsImages.push(asset.src);
-          continue;
-        }
-        // 再查 derive
-        for (const a of props.assetsData) {
-          const derive = a.derive?.find((d) => d.id === id);
-          if (derive) {
-            if (derive.src) assetsImages.push(derive.src);
-            break;
-          }
-        }
-      }
-      imagesPush = imagesPush.concat(assetsImages);
-    }
-    // if (item?.referenceIds && item.referenceIds.length > 0) {
-    //   const referenImages = storyboard.value
-    //     .filter((s) => item.referenceIds!.includes(s.id))
-    //     .map((s) => s.src)
-    //     .filter(Boolean) as string[];
-    //   imagesPush = imagesPush.concat(referenImages);
-    // }
-    currentRow.value.referanceImages = imagesPush;
-    currentRow.value.resultImages = [{ src: images.length ? images[0] : "", prompt: item.prompt ?? "" }];
-  } else {
-    currentRow.value.referanceImages = images.filter(Boolean);
-  }
-  visible.value = true;
-}
-
-async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) {
-  if (!imageUrl) return;
-
-  const { id, insertAfterIndex } = currentRowStoryboardInfo.value;
-
-  // 插入模式：在两张图之间新增一条分镜
-  if (id === null && insertAfterIndex !== null) {
-    const newFrame: Storyboard = {
-      duration: 0,
-      prompt: "",
-      src: imageUrl,
-      videoDesc: "",
-      shouldGenerateImage: 1,
-      state: "已完成",
-    };
-    const { data } = await axios.post("/production/storyboard/addStoryboard", {
-      ...newFrame,
-      projectId: project.value?.id,
-      scriptId: episodesId.value,
-      flowId,
+  try {
+    await axios.post("/production/storyboard/cancelStoryboardGenerate", {
+      ids: [item.id],
     });
-
-    storyboard.value.splice(insertAfterIndex + 1, 0, { ...newFrame, id: data.id!, flowId });
-    productionAgentStore().setFlowData();
-    return;
+    item.state = "生成失败";
+    window.$message.success($t("workbench.cornerScape.cancelSuccess"));
+  } catch {
+    window.$message.error($t("workbench.cornerScape.cancelFailed"));
   }
-
-  // 更新模式：更新对应分镜的 src
-  const target = storyboard.value.find((s) => s.id === id);
-  if (target) {
-    target.src = imageUrl;
-    target.state = "已完成";
-    target.flowId = flowId;
-  }
-  await axios.post("/production/storyboard/updateStoryboardUrl", {
-    id: id,
-    url: imageUrl,
-    flowId,
-  });
 }
-
-async function removeFn(id: number) {
-  const dialog = DialogPlugin.confirm({
-    header: $t("workbench.assets.confirmDeleteHeader"),
-    body: $t("workbench.production.node.storyboard.confirmDeleteBody"),
-    confirmBtn: $t("workbench.assets.deleteBtn"),
-    cancelBtn: $t("workbench.assets.cancelBtn"),
-    theme: "warning",
-    onConfirm: async () => {
-      if (!id) {
-        const index = storyboard.value.findIndex((s) => s.id === id);
-        if (index !== -1) {
-          storyboard.value.splice(index, 1);
-        }
-        dialog.destroy();
-        return;
-      }
-      try {
-        await axios.post("/production/storyboard/removeFrame", {
-          id,
-          projectId: project.value?.id,
-        });
-        const index = storyboard.value.findIndex((s) => s.id === id);
-        if (index !== -1) {
-          storyboard.value.splice(index, 1);
-        }
-      } catch (e) {
-        window.$message.error((e as any)?.message || $t("workbench.production.node.storyboard.removeFailed"));
-      } finally {
-        dialog.destroy();
-      }
-    },
-  });
+function previewRow(item: Storyboard) {
+  if (!item.src) return;
+  previewImages.value = [item.src];
+  previewVisible.value = true;
 }
-
 function editInfo(item: Storyboard) {
   const formData = reactive({
     prompt: item.prompt ?? "",
@@ -491,6 +488,107 @@ function editInfo(item: Storyboard) {
     },
   });
 }
+async function removeFn(id: number) {
+  try {
+    await axios.post("/production/storyboard/batchDelete", {
+      ids: [id],
+      projectId: project.value?.id,
+    });
+    storyboard.value = storyboard.value.filter((i) => i.id !== id);
+    selectedIds.value = selectedIds.value.filter((item) => item !== id);
+    window.$message.success($t("workbench.production.node.storyboard.deleteSuccess"));
+  } catch (e) {
+    window.$message.error((e as any)?.message || $t("workbench.production.node.storyboard.removeFailed"));
+  }
+}
+async function save({ imageUrl, flowId }: { imageUrl: string; flowId: number }) {
+  if (!imageUrl) return;
+
+  const { id, insertAfterIndex } = currentRowStoryboardInfo.value;
+
+  // 插入模式：在两张图之间新增一条分镜
+  if (id === null && insertAfterIndex !== null) {
+    const newFrame: Storyboard = {
+      duration: 0,
+      prompt: "",
+      src: imageUrl,
+      videoDesc: "",
+      shouldGenerateImage: 1,
+      state: "已完成",
+    } as Storyboard;
+    const { data } = await axios.post("/production/storyboard/addStoryboard", {
+      ...newFrame,
+      projectId: project.value?.id,
+      scriptId: episodesId.value,
+      flowId,
+    });
+
+    storyboard.value.splice(insertAfterIndex + 1, 0, { ...newFrame, id: data.id!, flowId });
+    productionAgentStore().setFlowData();
+    return;
+  }
+
+  // 更新模式：更新对应分镜的 src
+  const target = storyboard.value.find((s) => s.id === id);
+  if (target) {
+    target.src = imageUrl;
+    target.state = "已完成";
+    target.flowId = flowId;
+  }
+  await axios.post("/production/storyboard/updateStoryboardUrl", {
+    id,
+    url: imageUrl,
+    flowId,
+  });
+}
+function editStoryboaryImage(item: Storyboard, images: string[], insertAfterIndex: number | null = null) {
+  currentRowStoryboardInfo.value = {
+    id: insertAfterIndex == null ? item?.id! : null,
+    insertAfterIndex,
+  };
+  currentRow.value = {
+    flowId: item?.flowId ?? null,
+    resultImages: [],
+    referanceImages: [],
+  };
+
+  if (currentRowStoryboardInfo.value.id) {
+    let imagesPush: string[] = [];
+
+    if (item.associateAssetsIds && item.associateAssetsIds.length > 0) {
+      const assetsImages: string[] = [];
+      for (const id of item.associateAssetsIds) {
+        // 先查顶层 asset
+        const asset = props.assetsData.find((a) => a.id === id);
+        if (asset) {
+          if (asset.src) assetsImages.push(asset.src);
+          continue;
+        }
+        // 再查 derive
+        for (const a of props.assetsData) {
+          const derive = a.derive?.find((d) => d.id === id);
+          if (derive) {
+            if (derive.src) assetsImages.push(derive.src);
+            break;
+          }
+        }
+      }
+      imagesPush = imagesPush.concat(assetsImages);
+    }
+    currentRow.value.referanceImages = imagesPush;
+    currentRow.value.resultImages = [{ src: images.length ? images[0] : "", prompt: item.prompt ?? "" }];
+  } else {
+    currentRow.value.referanceImages = images.filter(Boolean);
+  }
+  visible.value = true;
+}
+
+watch(
+  () => episodesId.value,
+  () => {
+    selectedIds.value = [];
+  },
+);
 </script>
 
 <style lang="scss" scoped>
@@ -550,11 +648,6 @@ function editInfo(item: Storyboard) {
     &.expanded {
       opacity: 1;
       pointer-events: auto;
-    }
-    &:hover {
-      // background: var(--td-brand-color);
-      // color: #fff;
-      // transform: scale(1.15);
     }
     &--left {
       transform: translate(calc(-50% - 4px), -50%);
