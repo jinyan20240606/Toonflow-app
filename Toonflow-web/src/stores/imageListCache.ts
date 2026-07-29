@@ -79,25 +79,25 @@ export default defineStore(
       });
       if (needResolve.length) {
         try {
-          const { data } = await axios.post("/production/workbench/getFileUrl", {
+          const response = await axios.post("/production/workbench/getFileUrl", {
             items: needResolve.map((item) => ({ id: item.id, sources: item.sources })),
           });
-          // axios 拦截器已返回 response.data，后端可能再包一层 { data: { ... } }
-          const rawData = data.data;
+          const rawData = response?.data ?? response;
 
           // 兼容多种后端响应格式
           const resolved: Record<string, string> = {};
-          if (Array.isArray(rawData)) {
+          const payload = rawData?.data ?? rawData;
+          if (Array.isArray(payload)) {
             // 格式: [{ id: 1, sources: "storyboard", url: "http://..." }, ...]
-            rawData.forEach((item: any) => {
+            payload.forEach((item: any) => {
               if (item.id != null && item.url) {
                 const key = makeUrlKey(item.id, item.sources);
                 resolved[key] = item.url;
               }
             });
-          } else if (rawData && typeof rawData === "object" && !Array.isArray(rawData)) {
+          } else if (payload && typeof payload === "object" && !Array.isArray(payload)) {
             // 格式: { "id:sources": fullUrl } 或 { [compositeKey]: fullUrl }
-            Object.entries(rawData).forEach(([key, url]) => {
+            Object.entries(payload).forEach(([key, url]) => {
               resolved[key] = url as string;
             });
           }
@@ -183,7 +183,7 @@ export default defineStore(
       imageList.forEach((item) => {
         if (!item.src || item.id == null) return;
         const key = makeUrlKey(item.id, (item as any).sources);
-        if (!urlMap.value[key]) {
+        if (urlMap.value[key] !== item.src) {
           urlMap.value[key] = item.src;
           urlMapDirty = true;
         }
@@ -230,6 +230,46 @@ export default defineStore(
         delete cacheData.value[projectId];
       }
     }
+    function mergeFreshSources(cached: CachedUploadItem[], incoming: CachedUploadItem[]): CachedUploadItem[] {
+      const incomingByKey = new Map<string, CachedUploadItem>();
+      const incomingById = new Map<number, CachedUploadItem[]>();
+      const incomingStoryboardByIndex = new Map<number, CachedUploadItem>();
+
+      incoming.forEach((item) => {
+        if ((item as any).sources === "storyboard" && typeof (item as any).index === "number") {
+          incomingStoryboardByIndex.set((item as any).index, item);
+        }
+        if (item.id == null) return;
+        incomingByKey.set(makeUrlKey(item.id, (item as any).sources), item);
+        const sameIdItems = incomingById.get(item.id) ?? [];
+        sameIdItems.push(item);
+        incomingById.set(item.id, sameIdItems);
+      });
+
+      return cached.flatMap((item) => {
+        const sameIdItems = item.id == null ? [] : (incomingById.get(item.id) ?? []);
+        const matched =
+          (item.id == null ? undefined : incomingByKey.get(makeUrlKey(item.id, (item as any).sources))) ??
+          ((item as any).sources === "storyboard" && typeof (item as any).index === "number"
+            ? incomingStoryboardByIndex.get((item as any).index)
+            : undefined) ??
+          ((item as any).sources == null && sameIdItems.length === 1 ? sameIdItems[0] : undefined);
+
+        if (!matched) return (item as any).sources === "storyboard" ? [] : [item];
+
+        return [
+          {
+            ...item,
+            ...(item.id == null && matched.id != null ? { id: matched.id } : {}),
+            ...(matched.src ? { src: matched.src } : {}),
+            ...((item as any).sources == null && (matched as any).sources != null ? { sources: (matched as any).sources } : {}),
+            ...((item as any).index == null && (matched as any).index != null ? { index: (matched as any).index } : {}),
+            ...(item.prompt == null && matched.prompt != null ? { prompt: matched.prompt } : {}),
+          },
+        ];
+      });
+    }
+
     /**
      * 从后端返回的 trackList 批量初始化缓存
      * 只有当对应轨道没有缓存时才写入（保留用户本地编辑）
@@ -237,10 +277,17 @@ export default defineStore(
     function initCacheFromTrackList(projectId: CacheKey, scriptId: CacheKey, trackList: TrackItem[]): void {
       trackList.forEach((track) => {
         if (track.id == null) return;
-        if (cacheData.value[projectId]?.[scriptId]?.[track.id]) return;
         if (!cacheData.value[projectId]) cacheData.value[projectId] = {};
         if (!cacheData.value[projectId][scriptId]) cacheData.value[projectId][scriptId] = {};
-        cacheData.value[projectId][scriptId][track.id] = toCachedItems(track.medias);
+
+        const incoming = toCachedItems(track.medias);
+        const cached = cacheData.value[projectId][scriptId][track.id];
+        if (cached) {
+          cacheData.value[projectId][scriptId][track.id] = mergeFreshSources(cached, incoming);
+          return;
+        }
+
+        cacheData.value[projectId][scriptId][track.id] = incoming;
       });
     }
 

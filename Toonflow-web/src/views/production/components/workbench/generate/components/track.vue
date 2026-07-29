@@ -30,6 +30,9 @@
             @click.stop
             @change="(val: boolean) => toggleCheck(track.id, val)" />
           <t-tag class="indexTag" size="small">#{{ index + 1 }}</t-tag>
+          <t-tag class="storyboardTag" theme="primary" variant="light" size="small" v-if="getStoryboardLabel(track)">
+            {{ getStoryboardLabel(track) }}
+          </t-tag>
           <t-tag class="selectTag" theme="success" size="small" v-if="track.selectVideoId">已选择</t-tag>
           <!-- 优先展示选中视频的首帧 -->
           <div class="thumbGroup" v-if="track.selectVideoId && getSelectedVideoSrc(track)">
@@ -46,7 +49,7 @@
           <div class="thumbGroup" v-else-if="track.medias.some((m) => m.src)">
             <template v-for="(m, i) in track.medias" :key="i">
               <template v-if="m.src">
-                <t-image fit="cover" v-if="m.fileType === 'image'" :src="m.src" class="thumb" />
+                <t-image fit="cover" v-if="m.fileType === 'image'" :key="m.src" :src="m.src" class="thumb" />
                 <div v-else class="thumb placeholder c">
                   <i-volume-notice v-if="m.fileType === 'audio'" size="20" />
                   <i-video v-else size="24" />
@@ -116,6 +119,19 @@ function getSelectedVideoSrc(track: TrackItem): string | null {
 function isTrackCardLoading(track: TrackItem) {
   if (track.state === "生成中") return true;
   return track.videoList?.some((video) => video.state === "生成中");
+}
+
+function getStoryboardLabel(track: TrackItem) {
+  const storyboardIndexes = [
+    ...new Set(
+      (track.medias ?? []).filter((media) => media.sources === "storyboard" && typeof media.index === "number").map((media) => media.index as number),
+    ),
+  ].sort((a, b) => a - b);
+
+  if (!storyboardIndexes.length) return "";
+  if (storyboardIndexes.length === 1) return `P${storyboardIndexes[0] + 1}`;
+
+  return `P${storyboardIndexes[0] + 1}-P${storyboardIndexes[storyboardIndexes.length - 1] + 1}`;
 }
 
 function getTrackCardLoadingText(track: TrackItem) {
@@ -473,6 +489,13 @@ watch(
         bottom: 4px;
         left: 4px;
         z-index: 2;
+      }
+      .storyboardTag {
+        position: absolute;
+        top: 4px;
+        left: 34px;
+        z-index: 2;
+        max-width: calc(100% - 86px);
       }
       .selectTag {
         position: absolute;

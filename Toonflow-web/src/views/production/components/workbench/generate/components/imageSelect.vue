@@ -4,7 +4,7 @@
     <template v-if="mode == 'singleImage' || Array.isArray(parseMode(mode as string))">
       <div class="uploadBtn c fc" v-for="(item, index) in mode == 'singleImage' ? imageList.slice(0, 1) : imageList" :key="index">
         <template v-if="item.src">
-          <t-image v-if="item.fileType == 'image'" :src="item.src" fit="contain" class="uploadPreview">
+          <t-image v-if="item.fileType == 'image'" :key="item.src" :src="item.src" fit="contain" class="uploadPreview">
             <template #overlayContent>
               <div class="imageToolsWrap">
                 <ImageTools :src="item.src!" position="br" />
@@ -43,7 +43,12 @@
       <div class="uploadBtn c fc" v-for="(item, index) in buildLabel" :key="item.value" @click="handleMixedAdd(item.value as 'start' | 'end')">
         <div v-if="!isEmptySlot(imageList?.[index])" style="flex: 1; width: 100%" class="ac">
           <template v-if="imageList?.[index]?.src">
-            <t-image v-if="imageList?.[index]?.fileType == 'image'" :src="imageList?.[index]!.src" fit="contain" class="uploadPreview">
+            <t-image
+              v-if="imageList?.[index]?.fileType == 'image'"
+              :key="imageList?.[index]!.src"
+              :src="imageList?.[index]!.src"
+              fit="contain"
+              class="uploadPreview">
               <template #overlayContent>
                 <div class="imageToolsWrap">
                   <ImageTools :src="imageList?.[index]!.src" position="br" />

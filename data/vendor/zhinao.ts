@@ -349,7 +349,7 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
   const videoRefs = (config.referenceList ?? []).filter((r) => r.type === "video").map((r) => r.base64);
   const audioRefs = (config.referenceList ?? []).filter((r) => r.type === "audio").map((r) => r.base64);
 
-  const toImageUrl = (b64: string) => {
+  const toMediaUrl = (b64: string) => {
     if (/^https?:\/\//i.test(b64)) return b64;
     if (b64.startsWith("data:")) return b64;
     return `data:image/jpeg;base64,${b64}`;
@@ -360,35 +360,51 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
     content.push({ type: "text", text: config.prompt });
   }
   for (const img of imageRefs) {
-    content.push({ type: "image_url", image_url: { url: toImageUrl(img) } });
+    content.push({ type: "image_url", image_url: { url: toMediaUrl(img) } });
   }
   for (const vid of videoRefs) {
-    content.push({ type: "video_url", video_url: { url: vid } });
+    content.push({ type: "video_url", video_url: { url: toMediaUrl(vid) } });
   }
   for (const aud of audioRefs) {
-    content.push({ type: "audio_url", audio_url: { url: aud } });
+    content.push({ type: "audio_url", audio_url: { url: toMediaUrl(aud) } });
   }
 
   let extra_body: Record<string, any> = {};
 
   if (lowerName.includes("doubao") || lowerName.includes("seedance")) {
+    // 火山引擎豆包/Seedance 系列
+    // 参考请求格式：
+    // {
+    //   "model": "volcengine/doubao-seedance-2-0",
+    //   "content": [
+    //     { "type": "text", "text": "..." },
+    //     { "type": "image_url", "image_url": { "url": "https://..." } },
+    //     { "type": "video_url", "video_url": { "url": "https://..." } },
+    //     { "type": "audio_url", "audio_url": { "url": "https://..." } }
+    //   ],
+    //   "extra_body": {
+    //     "role": "reference",
+    //     "generate_audio": true,
+    //     "ratio": "16:9",
+    //     "duration": 11,
+    //     "watermark": false
+    //   }
+    // }
     extra_body = {
+      ...(Array.isArray(activeMode) && (imageRefs.length || videoRefs.length || audioRefs.length) ? { role: "reference" } : {}),
+      ...(typeof config.audio === "boolean" && { generate_audio: config.audio }),
       ratio: config.aspectRatio,
       duration: config.duration,
       watermark: false,
-      ...(config.resolution && { resolution: config.resolution }),
-      ...(typeof config.audio === "boolean" && { generate_audio: config.audio }),
+      person_generation: "allow",
     };
-    if (Array.isArray(activeMode) && (imageRefs.length || videoRefs.length || audioRefs.length)) {
-      extra_body.role = "reference";
-    }
   } else if (lowerName.includes("wan")) {
     if (typeof config.audio === "boolean") extra_body.audio = config.audio;
     if ((activeMode === "startEndRequired" || activeMode === "endFrameOptional" || activeMode === "startFrameOptional") && imageRefs.length >= 2) {
-      if (imageRefs[0]) extra_body.first_frame_url = toImageUrl(imageRefs[0]);
-      if (imageRefs[1]) extra_body.last_frame_url = toImageUrl(imageRefs[1]);
+      if (imageRefs[0]) extra_body.first_frame_url = toMediaUrl(imageRefs[0]);
+      if (imageRefs[1]) extra_body.last_frame_url = toMediaUrl(imageRefs[1]);
     } else if (imageRefs.length) {
-      extra_body.img_url = toImageUrl(imageRefs[0]);
+      extra_body.img_url = toMediaUrl(imageRefs[0]);
     }
   } else if (lowerName.includes("vidu")) {
     extra_body = {
@@ -397,17 +413,29 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
       off_peak: false,
     };
   } else if (lowerName.includes("kling")) {
+    // Kling 不支持 audio_url 参考，将音频描述注入 prompt 文本
+    const audioRefs = (config.referenceList ?? []).filter((r) => r.type === "audio");
+    let klingPrompt = config.prompt || "";
+    if (audioRefs.length > 0 && klingPrompt) {
+      klingPrompt += "\n\n[Audio Reference Description]\n";
+      audioRefs.forEach((ref, i) => {
+        klingPrompt += `Reference audio ${i + 1}: This audio clip provides voice timbre reference. The character speaking should match this voice characteristics.\n`;
+      });
+    }
     extra_body = {
       aspect_ratio: config.aspectRatio,
       sound: typeof config?.audio == "boolean" ? (config?.audio ? "on" : "off") : "off",
     };
+    // 替换 content 中的 text 为增强后的 prompt
+    const textItem = content.find((c) => c.type === "text");
+    if (textItem) textItem.text = klingPrompt;
   } else if (lowerName.includes("grok")) {
     extra_body = { aspectRatio: config.aspectRatio };
   } else if (lowerName.includes("veo")) {
     extra_body = {
       instances: [{
         prompt: config.prompt,
-        ...(imageRefs.length ? { image: toImageUrl(imageRefs[0]) } : {}),
+        ...(imageRefs.length ? { image: toMediaUrl(imageRefs[0]) } : {}),
       }],
       parameters: {
         aspectRatio: config.aspectRatio,
@@ -420,15 +448,15 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
   } else if (lowerName.includes("happyhorse")) {
     const media: any[] = [];
     if (activeMode === "singleImage" || activeMode === "startFrameOptional") {
-      imageRefs.forEach((img) => media.push({ type: "first_frame", url: toImageUrl(img) }));
+      imageRefs.forEach((img) => media.push({ type: "first_frame", url: toMediaUrl(img) }));
     } else if (activeMode === "startEndRequired" && imageRefs.length >= 2) {
-      media.push({ type: "first_frame", url: toImageUrl(imageRefs[0]) });
-      media.push({ type: "last_frame", url: toImageUrl(imageRefs[1]) });
+      media.push({ type: "first_frame", url: toMediaUrl(imageRefs[0]) });
+      media.push({ type: "last_frame", url: toMediaUrl(imageRefs[1]) });
     } else if (Array.isArray(activeMode)) {
-      imageRefs.forEach((img) => media.push({ type: "reference_image", url: toImageUrl(img) }));
+      imageRefs.forEach((img) => media.push({ type: "reference_image", url: toMediaUrl(img) }));
       videoRefs.forEach((vid) => media.push({ type: "video", url: vid }));
     } else {
-      imageRefs.forEach((img) => media.push({ type: "first_frame", url: toImageUrl(img) }));
+      imageRefs.forEach((img) => media.push({ type: "first_frame", url: toMediaUrl(img) }));
     }
     const resolution = config.resolution && !/P$/i.test(config.resolution) ? `${config.resolution}P` : config.resolution;
     extra_body = {
@@ -444,23 +472,30 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
     };
   }
 
-  // 确保 content 至��包含 text 或其他内容，避免空数组导致上游报 prompt cannot be empty
+  // 确保 content 至少包含 text，避免空数组
   if (content.length === 0 || !content.some((c) => c.type === "text")) {
-    // 如果 content 中没有 text，至少加一个占位符
     content.unshift({ type: "text", text: config.prompt || "Generate a video" });
   }
 
-  // 对于未在 extra_body 中处理图片的模型（如 doubao/seedance），补充 image_urls
+  // doubao/seedance 的图片/视频/音频已通过 content 传入，不需要 extra_body.image_urls
+  const isDoubaoSeedance = lowerName.includes("doubao") || lowerName.includes("seedance");
   const modelsWithImageHandled = ["wan", "vidu", "kling", "grok", "veo", "happyhorse"];
-  const isImageHandled = modelsWithImageHandled.some((k) => lowerName.includes(k));
+  const isImageHandled = modelsWithImageHandled.some((k) => lowerName.includes(k)) || isDoubaoSeedance;
   if (imageRefs.length > 0 && !isImageHandled) {
-    extra_body.image_urls = imageRefs.map(toImageUrl);
+    extra_body.image_urls = imageRefs.map(toMediaUrl);
   }
 
   let body: Record<string, any>;
   if (lowerName.includes("happyhorse") || lowerName.includes("veo")) {
     body = {
       model: model.modelName,
+      extra_body,
+    };
+  } else if (isDoubaoSeedance) {
+    // seedance/doubao: duration 在 extra_body 内，不在 body 顶层
+    body = {
+      model: model.modelName,
+      content,
       extra_body,
     };
   } else {

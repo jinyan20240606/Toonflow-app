@@ -151,6 +151,26 @@ function getImageItemPriority(item: UploadItem): number {
   return 2;
 }
 
+function fillStoryboardImageFromList(items: UploadItem[]): UploadItem[] {
+  const storyboardById = new Map(storyboardList.value.map((item) => [item.id, item]));
+  const storyboardByIndex = new Map(storyboardList.value.map((item) => [item.index, item]));
+
+  return items.flatMap((item) => {
+    if (item.sources !== "storyboard") return [item];
+    const storyboard = (typeof item.id === "number" ? storyboardById.get(item.id) : undefined) ?? storyboardByIndex.get(item.index);
+    if (!storyboard) return [];
+
+    return [
+      {
+        ...item,
+        id: storyboard.id,
+        src: storyboard.src,
+        prompt: item.prompt ?? storyboard.videoDesc ?? undefined,
+      },
+    ];
+  });
+}
+
 const imageList = computed({
   get(): UploadItem[] {
     // 触发对 urlMap 的依赖追踪，当 warmUpUrls 更新 urlMap 后自动重新计算
@@ -164,12 +184,12 @@ const imageList = computed({
       const cached = getCache(pid, sid, trackId);
 
       if (cached?.length) {
-        return [...cached].sort((a, b) => getImageItemPriority(a) - getImageItemPriority(b));
+        return fillStoryboardImageFromList(cached).sort((a, b) => getImageItemPriority(a) - getImageItemPriority(b));
       }
     }
     const medias = currentTrack.value?.medias;
     if (!medias?.length) return [];
-    return [...(medias as UploadItem[])].sort((a, b) => getImageItemPriority(a) - getImageItemPriority(b));
+    return fillStoryboardImageFromList([...(medias as UploadItem[])]).sort((a, b) => getImageItemPriority(a) - getImageItemPriority(b));
   },
   set(val: UploadItem[]) {
     if (currentTrack.value) {
@@ -349,8 +369,11 @@ async function getGenerateData() {
       if (track.id == null) return;
       const cached = getCache(pid, sid, track.id);
       if (cached?.length) {
-        track.medias = cached as unknown as TrackMedia[];
+        track.medias = fillStoryboardImageFromList(cached) as unknown as TrackMedia[];
+      } else {
+        track.medias = fillStoryboardImageFromList(track.medias as unknown as UploadItem[]) as unknown as TrackMedia[];
       }
+      setCache(pid, sid, track.id, track.medias as unknown as UploadItem[]);
     });
     // 整体赋值触发响应式
     trackList.value = [...data.trackList];

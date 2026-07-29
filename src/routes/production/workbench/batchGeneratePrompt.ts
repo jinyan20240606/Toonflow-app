@@ -158,12 +158,57 @@ export default router.post(
               });
           }
 
-          const content = `
+          // 查询角色绑定的音频信息（音色描述），注入到 LLM 上下文中
+          // 从 storyboard 的 associateAssetsIds + assets 中收集所有角色 ID
+          const allAssetIds = [
+            ...new Set([
+              ...assets.map((i: any) => i.id),
+              ...storyboard.flatMap((s: any) => s.associateAssetsIds || []),
+            ]),
+          ];
+          const role2AudioData = allAssetIds.length
+            ? await u
+                .db("o_assetsRole2Audio")
+                .leftJoin("o_assets", "o_assets.id", "o_assetsRole2Audio.assetsAudioId")
+                .whereIn("o_assetsRole2Audio.assetsRoleId", allAssetIds)
+                .select(
+                  "o_assetsRole2Audio.assetsRoleId",
+                  "o_assetsRole2Audio.assetsAudioId",
+                  "o_assets.name as audioName",
+                  "o_assets.describe as audioDescribe",
+                )
+            : [];
+          const roleAudioMap: Record<number, { name: string; describe: string; audioId: number }> = {};
+          role2AudioData.forEach((i: any) => {
+            roleAudioMap[i.assetsRoleId] = { name: i.audioName, describe: i.audioDescribe, audioId: i.assetsAudioId };
+          });
+          // 查出有音频绑定的角色名称
+          const bindRoleIds = Object.keys(roleAudioMap).map(Number);
+          const bindRoles = bindRoleIds.length
+            ? await u.db("o_assets").whereIn("id", bindRoleIds).select("id", "name")
+            : [];
+          const bindRoleNameMap: Record<number, string> = {};
+          bindRoles.forEach((r: any) => { bindRoleNameMap[r.id] = r.name; });
+
+          // 判断当前模式是否为「支持参考音频」的多参模式
+          let videoModeParsed: any = mode;
+          try { videoModeParsed = JSON.parse(mode); } catch {}
+          const isAudioReferenceMode =
+            Array.isArray(videoModeParsed) && videoModeParsed.some((m: any) => String(m).toLowerCase().startsWith("audioreference"));
+
+          // 双轨拼接：参考音频模式 → 保留 audio:ID 引用；非参考音频模式 → 纯文字音色描述
+          let content: string;
+          if (isAudioReferenceMode) {
+            const assetLines = assets
+              .filter((i: any) => i.filePath)
+              .map((i: any) => {
+                const audioId = roleAudioMap[i.id]?.audioId;
+                return audioId ? `[${i.id},${i.type},${i.name} audio:${audioId}]` : `[${i.id},${i.type},${i.name}]`;
+              })
+              .join("，");
+            content = `
           **模型名称**：${modelData},
-          **资产信息**（角色、场景、道具、音频):${assets
-            .filter((i: any) => i.filePath)
-            .map((i: any) => `[${i.id},${i.type},${i.name}]`)
-            .join("，")},
+          **资产信息**（角色、场景、道具、音频):${assetLines},
           **分镜信息**：${storyboard.map(
             (i: any) => `<storyboardItem
   videoDesc='${i.videoDesc}'
@@ -171,6 +216,29 @@ export default router.post(
 ></storyboardItem>`,
           )},
           `;
+          } else {
+            const roleAudioDesc = Object.entries(roleAudioMap)
+              .map(([roleId, audio]) => {
+                const roleName = bindRoleNameMap[Number(roleId)] || `角色ID:${roleId}`;
+                const [sex, timbre] = (audio.describe || "").split("|");
+                return `- ${roleName}：${sex || ""}，${timbre || audio.describe || audio.name || "无描述"}`;
+              })
+              .join("\n");
+            content = `
+          **模型名称**：${modelData},
+          **资产信息**（角色、场景、道具、音频):${assets
+            .filter((i: any) => i.filePath)
+            .map((i: any) => `[${i.id},${i.type},${i.name}]`)
+            .join("，")},
+          ${roleAudioDesc ? `**角色音色信息**（角色绑定的音色描述，请在台词和 Audio 段落中使用这些音色特征）:\n${roleAudioDesc}\n` : ""}
+          **分镜信息**：${storyboard.map(
+            (i: any) => `<storyboardItem
+  videoDesc='${i.videoDesc}'
+  duration='${i.duration}'
+></storyboardItem>`,
+          )},
+          `;
+          }
 
           try {
             const { text } = await u.Ai.Text("universalAi").invoke({
@@ -186,13 +254,23 @@ export default router.post(
                 },
               ],
             });
-
+            // 非音频模式下，在提示词末尾追加 [Voice Timbre] 段
+            let promptText = text;
+            if (!isAudioReferenceMode && Object.keys(roleAudioMap).length > 0) {
+              const timbreLines = Object.entries(roleAudioMap)
+                .map(([roleId, audio]) => {
+                  const roleName = bindRoleNameMap[Number(roleId)] || `角色ID:${roleId}`;
+                  const [sex, timbre] = (audio.describe || "").split("|");
+                  return `- ${roleName}：${sex || ""}，${timbre || audio.describe || audio.name || "无描述"}`;
+                });
+              promptText = text + `\n\n[Voice Timbre]\n${timbreLines.join("\n")}`;
+            }
             await u.db("o_videoTrack").where({ id: track.trackId }).update({
-              prompt: text,
+              prompt: promptText,
               state: "已完成",
             });
 
-            return { trackId: track.trackId, text };
+            return { trackId: track.trackId, text: promptText };
           } catch (e: any) {
             await u
               .db("o_videoTrack")

@@ -73,6 +73,7 @@ interface TrackMediaBase {
 interface TrackMediaStoryboard extends TrackMediaBase {
   sources: "storyboard";
   index?: number;
+  trackId?: number;
 }
 
 interface TrackMediaAssets extends TrackMediaBase {
