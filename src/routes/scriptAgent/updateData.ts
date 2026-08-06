@@ -9,6 +9,7 @@ export default router.post(
   "/",
   validateFields({
     id: z.number(),
+    episodesId: z.number().optional(),
     data: z.object({
       storySkeleton: z.string(),
       adaptationStrategy: z.string(),

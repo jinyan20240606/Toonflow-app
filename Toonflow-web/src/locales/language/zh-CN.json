@@ -1802,7 +1802,8 @@
   "workbench.production.node.storyboard.videoDescPlaceholder": "请输入视频描述",
   "workbench.production.node.storyboard.videoDesc": "视频描述",
   "workbench.production.node.assets.confirmDeleteBody": "确认是否删除该资产",
-  "workbench.production.node.assets.removeFailed": "删除资产失败",
+  "workbench.production.node.assets.confirmDeleteMainBody": "确认是否删除该主资产及其所有衍生资产？此操作不可恢复！",
+  "workbench.production.node.assets.deleteSuccess": "资产删除成功",
   "version": {
     "newVersion": "有新版本，是否更新？"
   },

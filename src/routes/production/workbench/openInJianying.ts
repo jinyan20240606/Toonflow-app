@@ -1,6 +1,6 @@
 import express from "express";
 import { z } from "zod";
-import { exec } from "child_process";
+import { exec, execSync } from "child_process";
 import { success, error } from "@/lib/responseFormat";
 import { validateFields } from "@/middleware/middleware";
 import { isEletron } from "@/utils/getPath";
@@ -380,6 +380,22 @@ function getJianyingDraftsDir(): string {
   throw new Error("不支持的操作系统");
 }
 
+/**
+ * 用 ffprobe 读取视频文件的实际时长（秒），失败时返回 null
+ */
+function getVideoDuration(filePath: string): number | null {
+  try {
+    const stdout = execSync(
+      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+      { encoding: "utf-8", timeout: 5000 },
+    );
+    const sec = parseFloat(stdout.trim());
+    return isNaN(sec) ? null : sec;
+  } catch {
+    return null;
+  }
+}
+
 function launchJianying(): void {
   const platform = process.platform;
   if (platform === "darwin") {
@@ -444,7 +460,13 @@ export default router.post(
         const trimmedPath = media.filePath.replace(/^[/\\]+/, "");
         const absFilePath = path.join(ossRoot, trimmedPath);
 
-        const durationUs = Math.round((media.duration || 5) * 1_000_000);
+        // video 类型用 ffprobe 读取实际时长，确保剪映草稿时长准确
+        let durationSec = media.duration;
+        if (media.type === "video" && !durationSec) {
+          const realSec = getVideoDuration(absFilePath);
+          if (realSec != null) durationSec = realSec;
+        }
+        const durationUs = Math.round((durationSec || 5) * 1_000_000);
 
         if (media.type === "video" || media.type === "image") {
           const materialId = u.uuid();
@@ -593,9 +615,10 @@ export default router.post(
       };
       await fs.writeFile(path.join(draftFolderPath, "draft_meta_info.json"), JSON.stringify(metaInfo));
 
-      launchJianying();
-
       res.status(200).send(success({ draftPath: draftFolderPath, draftName }));
+
+      // 响应返回后再启动剪映，避免剪映启动过快时草稿尚未完全注册
+      launchJianying();
     } catch (err: any) {
       res.status(200).send(error(err.message || "创建剪映草稿失败"));
     }

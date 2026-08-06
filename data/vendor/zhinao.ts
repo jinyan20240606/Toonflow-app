@@ -348,6 +348,15 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
   const imageRefs = (config.referenceList ?? []).filter((r) => r.type === "image").map((r) => r.base64);
   const videoRefs = (config.referenceList ?? []).filter((r) => r.type === "video").map((r) => r.base64);
   const audioRefs = (config.referenceList ?? []).filter((r) => r.type === "audio").map((r) => r.base64);
+  const isKlingModel = lowerName.includes("kling");
+
+  if (isKlingModel) {
+    logger(
+      `[videoRequest] Kling 入参: model=${model.modelName}, promptLength=${config.prompt?.length ?? 0}, ` +
+        `imageRefs=${imageRefs.length}, videoRefs=${videoRefs.length}, audioRefs=${audioRefs.length}, ` +
+        `mode=${Array.isArray(activeMode) ? activeMode.join(",") : activeMode}, duration=${config.duration}, aspectRatio=${config.aspectRatio}, audio=${config.audio}`,
+    );
+  }
 
   const toMediaUrl = (b64: string) => {
     if (/^https?:\/\//i.test(b64)) return b64;
@@ -412,16 +421,30 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
       audio: config.audio ?? false,
       off_peak: false,
     };
-  } else if (lowerName.includes("kling")) {
+  } else if (isKlingModel) {
     // Kling 不支持 audio_url 参考，将音频描述注入 prompt 文本
-    const audioRefs = (config.referenceList ?? []).filter((r) => r.type === "audio");
-    let klingPrompt = config.prompt || "";
+    const promptBeforeAudio = config.prompt || "";
+    let klingPrompt = promptBeforeAudio;
     if (audioRefs.length > 0 && klingPrompt) {
       klingPrompt += "\n\n[Audio Reference Description]\n";
       audioRefs.forEach((ref, i) => {
         klingPrompt += `Reference audio ${i + 1}: This audio clip provides voice timbre reference. The character speaking should match this voice characteristics.\n`;
       });
     }
+    if (Array.from(klingPrompt).length > 2500) {
+      const promptBeforeNarrativeRemoval = klingPrompt;
+      klingPrompt = klingPrompt
+        .replace(/\n*\[Narrative\]\r?\n[\s\S]*?(?=\r?\n\r?\n\[[^\]\r\n]+\]\r?\n|$)/, "")
+        .trim();
+      logger(
+        `[videoRequest] Kling 删除 Narrative: removed=${promptBeforeNarrativeRemoval.length - klingPrompt.length}, ` +
+          `before=${promptBeforeNarrativeRemoval.length}, after=${klingPrompt.length}`,
+      );
+    }
+    logger(
+      `[videoRequest] Kling prompt 处理: before=${promptBeforeAudio.length}, after=${klingPrompt.length}, ` +
+        `audioRefs=${audioRefs.length}, delta=${klingPrompt.length - promptBeforeAudio.length}`,
+    );
     extra_body = {
       aspect_ratio: config.aspectRatio,
       sound: typeof config?.audio == "boolean" ? (config?.audio ? "on" : "off") : "off",
@@ -509,6 +532,23 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
 
   const generateUrl = joinUrl(baseUrl, "/videos/async_generations");
   logger(`[videoRequest] 提交视频任务，模型: ${model.modelName}, URL: ${generateUrl}`);
+  if (isKlingModel) {
+    const textItemIndex = content.findIndex((c) => c.type === "text");
+    const finalPrompt = textItemIndex >= 0 && typeof content[textItemIndex].text === "string" ? content[textItemIndex].text : "";
+    logger(
+      `[videoRequest] Kling 请求摘要: contentCount=${content.length}, contentTypes=${content.map((c) => c.type).join(",")}, ` +
+        `promptPath=body.content[${textItemIndex}].text, extraBodyKeys=${Object.keys(extra_body).join(",") || "none"}`,
+    );
+    const utf8ByteLength = Array.from(finalPrompt).reduce((length, character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return length + (codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4);
+    }, 0);
+    logger(
+      `[videoRequest] Kling prompt 长度: utf16=${finalPrompt.length}, unicode=${Array.from(finalPrompt).length}, ` +
+        `utf8Bytes=${utf8ByteLength}, limit=2500`,
+    );
+    logger(`[videoRequest] Kling prompt 内容: ${JSON.stringify(finalPrompt)}`);
+  }
   // logger(`[videoRequest] 请求body: ${JSON.stringify(body).slice(0, 500)}`);
   const data = await requestJson(generateUrl, body, apiKey);
   const taskId = data?.data?.id;

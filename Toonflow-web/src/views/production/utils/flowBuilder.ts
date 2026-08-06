@@ -45,6 +45,7 @@ export interface Storyboard {
   id?: number;
   duration?: number;
   prompt: string;
+  track?: string;
   trackId?: number;
   associateAssetsIds?: number[];
   src: string | null;
@@ -69,6 +70,7 @@ export interface FlowData {
   assets: AssetItem[];
   storyboardTable: string;
   storyboard: Storyboard[];
+  storyboardPanelMode?: "auto" | "firstLastFrame" | "multiParam";
   workbench: {
     videoList: VideoList[];
   };

@@ -91,7 +91,16 @@ export default router.post(
       type: "视频",
     };
     const aiVideo = u.Ai.Video(model);
-    console.log(`[generateVideo] 开始生成视频, videoId=${videoId}, model=${model}, trackId=${trackId}`);
+    const promptLength = typeof prompt === "string" ? prompt.length : 0;
+    if (String(model).toLowerCase().includes("kling")) {
+      console.log(
+        `[generateVideo] Kling 开始生成视频, videoId=${videoId}, model=${model}, trackId=${trackId}, ` +
+          `promptLength=${promptLength}, duration=${duration}, resolution=${resolution}, ` +
+          `mode=${JSON.stringify(modeData.length > 0 ? modeData : mode)}, references=${base64.filter(Boolean).length}`,
+      );
+    } else {
+      console.log(`[generateVideo] 开始生成视频, videoId=${videoId}, model=${model}, trackId=${trackId}`);
+    }
     aiVideo
       .run(
         {

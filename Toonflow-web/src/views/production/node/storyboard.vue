@@ -2,90 +2,143 @@
   <t-card class="storyboard">
     <div class="titleBar dragHandle pr">
       <div class="title">{{ $t("workbench.production.node.storyboard.title") }}</div>
-      <Handle :id="props.handleIds.target" type="target" :position="Position.Left" style="left: calc(-1 * var(--td-comp-paddingLR-xl))" />
-      <Handle :id="props.handleIds.source" type="source" :position="Position.Right" style="right: calc(-1 * var(--td-comp-paddingLR-xl))" />
+      <div class="titleBarRight f ac">
+        <t-select
+          size="small"
+          :value="agentWriteMode"
+          style="width: 130px; margin-right: 8px"
+          @change="handleAgentWriteModeChange">
+          <t-option value="auto" label="自动(按模型)" />
+          <t-option value="firstLastFrame" label="首位帧模式" />
+          <t-option value="multiParam" label="多参模式" />
+        </t-select>
+        <Handle :id="props.handleIds.target" type="target" :position="Position.Left" style="left: calc(-1 * var(--td-comp-paddingLR-xl))" />
+        <Handle :id="props.handleIds.source" type="source" :position="Position.Right" style="right: calc(-1 * var(--td-comp-paddingLR-xl))" />
+      </div>
     </div>
     <div class="content">
       <t-empty v-if="!storyboard.length" style="margin-top: 16px"></t-empty>
-      <t-checkbox-group v-model="selectedIds">
-        <div class="frameGrid">
-          <template v-for="(item, index) in storyboard" :key="item.id">
-            <div class="frameItem" @mouseenter="setHoveredFrame(index)" @mouseleave="setHoveredFrame(null)">
-              <div class="addBetween addBetween--left" :class="{ expanded: hoveredIndex === index }">
-                <t-button
-                  theme="primary"
-                  variant="outline"
-                  shape="circle"
-                  @click.stop="editStoryboaryImage(item, [index > 0 ? storyboard[index - 1]?.src || '' : '', item.src || ''], index - 1)">
-                  <template #icon><i-plus /></template>
-                </t-button>
-              </div>
-
-              <div class="frameCard">
-                <div
-                  class="frameImage"
-                  :style="{
-                    width: `${200 * gridScale}px`,
-                    height: `${200 * gridScale}px`,
-                  }">
-                  <div class="ac frameCheckbox" :style="{ transform: `scale(${styleMaxSize})` }">
-                    <t-checkbox :checked="selectedIds.includes(item.id!)" @click.stop :key="item?.id || index" :value="item.id" />
-                    <t-tag class="frameTypeTag" :style="{ backgroundColor: tagColors[index % tagColors.length] }">
-                      S{{ String(index + 1).padStart(2, "0") }}
-                    </t-tag>
-                  </div>
-
-                  <t-image
-                    v-if="item.src && item.state == '已完成'"
-                    :src="item.src"
-                    fit="contain"
-                    class="frameImg"
-                    @click="editStoryboaryImage(item, [item.src])">
-                    <template #overlayContent>
-                      <div class="imageToolsWrap show">
-                        <ImageTools :style="{ transform: `scale(${styleMaxSize})` }" :src="item.src" position="br" />
-                      </div>
-                    </template>
-                  </t-image>
-                  <div v-else class="generatingPlaceholder" @click="item.state === '生成中' ? undefined : editStoryboaryImage(item, [])">
-                    <template v-if="item.state === '生成中'">
-                      <t-loading size="small" />
-                      <t-tag class="cancelGenerationBtn" theme="danger" size="small" @click.stop="cancelGenerationFn(item)">
-                        {{ $t("workbench.cornerScape.cancelGeneration") }}
+      <!-- 逐镜头模式 -->
+      <template v-if="displayMode === 'shot'">
+        <t-checkbox-group v-model="selectedIds">
+          <div class="frameGrid">
+            <template v-for="(item, index) in storyboard" :key="item.id">
+              <div class="frameItem" @mouseenter="setHoveredFrame(index)" @mouseleave="setHoveredFrame(null)">
+                <div class="addBetween addBetween--left" :class="{ expanded: hoveredIndex === index }">
+                  <t-button
+                    theme="primary"
+                    variant="outline"
+                    shape="circle"
+                    @click.stop="editStoryboaryImage(item, [index > 0 ? storyboard[index - 1]?.src || '' : '', item.src || ''], index - 1)">
+                    <template #icon><i-plus /></template>
+                  </t-button>
+                </div>
+                <div class="frameCard">
+                  <div class="frameImage" :style="{ width: `${200 * gridScale}px`, height: `${200 * gridScale}px` }">
+                    <div class="ac frameCheckbox" :style="{ transform: `scale(${styleMaxSize})` }">
+                      <t-checkbox :checked="selectedIds.includes(item.id!)" @click.stop :key="item?.id || index" :value="item.id" />
+                      <t-tag class="frameTypeTag" :style="{ backgroundColor: tagColors[index % tagColors.length] }">
+                        S{{ String(index + 1).padStart(2, "0") }}
                       </t-tag>
-                    </template>
-                    <t-tooltip v-else-if="item.state == '生成失败'" :content="item?.reason">
-                      <span style="color: #ff4d4f">生成失败</span>
+                    </div>
+                    <t-image v-if="item.src && item.state == '已完成'" :src="item.src" fit="contain" class="frameImg" @click="editStoryboaryImage(item, [item.src])">
+                      <template #overlayContent>
+                        <div class="imageToolsWrap show">
+                          <ImageTools :style="{ transform: `scale(${styleMaxSize})` }" :src="item.src" position="br" />
+                        </div>
+                      </template>
+                    </t-image>
+                    <div v-else class="generatingPlaceholder" @click="item.state === '生成中' ? undefined : editStoryboaryImage(item, [])">
+                      <template v-if="item.state === '生成中'">
+                        <t-loading size="small" />
+                        <t-tag class="cancelGenerationBtn" theme="danger" size="small" @click.stop="cancelGenerationFn(item)">{{ $t("workbench.cornerScape.cancelGeneration") }}</t-tag>
+                      </template>
+                      <t-tooltip v-else-if="item.state == '生成失败'" :content="item?.reason">
+                        <span style="color: #ff4d4f">生成失败</span>
+                      </t-tooltip>
+                      <t-empty v-else size="small" :title="$t('workbench.production.node.storyboard.notGenerated')" />
+                    </div>
+                    <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.deleteNode')">
+                      <div class="remove ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="removeFn(item.id!)">
+                        <i-delete theme="outline" size="18" fill="#fff" />
+                      </div>
                     </t-tooltip>
-                    <t-empty v-else size="small" :title="$t('workbench.production.node.storyboard.notGenerated')" />
+                    <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.editNode')">
+                      <div class="editNode ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="editInfo(item)">
+                        <i-edit theme="outline" size="18" fill="#fff" />
+                      </div>
+                    </t-tooltip>
                   </div>
-                  <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.deleteNode')">
-                    <div class="remove ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="removeFn(item.id!)">
-                      <i-delete theme="outline" size="18" fill="#fff" />
-                    </div>
-                  </t-tooltip>
-                  <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.editNode')">
-                    <div class="editNode ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="editInfo(item)">
-                      <i-edit theme="outline" size="18" fill="#fff" />
-                    </div>
-                  </t-tooltip>
+                </div>
+                <div class="addBetween addBetween--right" :class="{ expanded: hoveredIndex === index }">
+                  <t-button
+                    theme="primary"
+                    variant="outline"
+                    shape="circle"
+                    @click.stop="editStoryboaryImage(item, [item.src || '', index < (storyboard?.length ?? 0) - 1 ? storyboard[index + 1]?.src || '' : ''], index)">
+                    <template #icon><i-plus /></template>
+                  </t-button>
                 </div>
               </div>
-              <div class="addBetween addBetween--right" :class="{ expanded: hoveredIndex === index }">
-                <t-button
-                  theme="primary"
-                  variant="outline"
-                  shape="circle"
-                  @click.stop="
-                    editStoryboaryImage(item, [item.src || '', index < (storyboard?.length ?? 0) - 1 ? storyboard[index + 1]?.src || '' : ''], index)
-                  ">
-                  <template #icon><i-plus /></template>
-                </t-button>
-              </div>
+            </template>
+          </div>
+        </t-checkbox-group>
+      </template>
+      <!-- 逐片段模式 -->
+      <template v-else>
+        <div class="segmentGrid">
+          <div v-for="(group, groupIndex) in storyboardGroups" :key="groupIndex" class="segmentGroup">
+            <div class="segmentHeader">
+              <t-tag theme="primary" size="small">片段 {{ groupIndex + 1 }}</t-tag>
+              <span class="segmentTrackName" v-if="group.track">{{ group.track }}</span>
+              <span class="segmentCount">{{ group.items.length }} 个镜头</span>
             </div>
-          </template>
+            <t-checkbox-group v-model="selectedIds">
+              <div class="segmentFrames">
+                <div v-for="(item, idx) in group.items" :key="item.id" class="frameItem" @mouseenter="setHoveredFrame(idx)" @mouseleave="setHoveredFrame(null)">
+                  <div class="frameCard">
+                    <div class="frameImage" :style="{ width: `${160 * gridScale}px`, height: `${160 * gridScale}px` }">
+                      <div class="ac frameCheckbox" :style="{ transform: `scale(${styleMaxSize})` }">
+                        <t-checkbox :checked="selectedIds.includes(item.id!)" @click.stop :key="item?.id || idx" :value="item.id" />
+                        <t-tag class="frameTypeTag" :style="{ backgroundColor: tagColors[(storyboard.indexOf(item)) % tagColors.length] }">
+                          S{{ String(storyboard.indexOf(item) + 1).padStart(2, "0") }}
+                        </t-tag>
+                      </div>
+                      <t-image v-if="item.src && item.state == '已完成'" :src="item.src" fit="contain" class="frameImg" @click="editStoryboaryImage(item, [item.src])">
+                        <template #overlayContent>
+                          <div class="imageToolsWrap show">
+                            <ImageTools :style="{ transform: `scale(${styleMaxSize})` }" :src="item.src" position="br" />
+                          </div>
+                        </template>
+                      </t-image>
+                      <div v-else class="generatingPlaceholder" @click="item.state === '生成中' ? undefined : editStoryboaryImage(item, [])">
+                        <template v-if="item.state === '生成中'">
+                          <t-loading size="small" />
+                          <t-tag class="cancelGenerationBtn" theme="danger" size="small" @click.stop="cancelGenerationFn(item)">{{ $t("workbench.cornerScape.cancelGeneration") }}</t-tag>
+                        </template>
+                        <t-tooltip v-else-if="item.state == '生成失败'" :content="item?.reason">
+                          <span style="color: #ff4d4f">生成失败</span>
+                        </t-tooltip>
+                        <t-empty v-else size="small" :title="$t('workbench.production.node.storyboard.notGenerated')" />
+                      </div>
+                      <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.deleteNode')">
+                        <div class="remove ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="removeFn(item.id!)">
+                          <i-delete theme="outline" size="18" fill="#fff" />
+                        </div>
+                      </t-tooltip>
+                      <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.editNode')">
+                        <div class="editNode ac" :style="{ transform: `scale(${styleMaxSize})` }" @click.stop="editInfo(item)">
+                          <i-edit theme="outline" size="18" fill="#fff" />
+                        </div>
+                      </t-tooltip>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </t-checkbox-group>
+          </div>
         </div>
-      </t-checkbox-group>
+      </template>
 
       <div class="scaleControl">
         <span>{{ $t("workbench.production.node.storyboard.scaleRatio") }}</span>
@@ -143,11 +196,55 @@ const props = defineProps<{
     source: string;
   };
   assetsData: AssetItem[];
+  storyboardPanelMode?: "auto" | "firstLastFrame" | "multiParam";
+}>();
+
+const emit = defineEmits<{
+  (e: "update:storyboardPanelMode", value: "auto" | "firstLastFrame" | "multiParam"): void;
 }>();
 
 const storyboard = defineModel<Storyboard[]>({ required: true });
 
 const visible = ref(false);
+
+// Agent 写入模式: auto=自动(按模型), firstLastFrame=首位帧模式, multiParam=多参模式
+const agentWriteMode = computed({
+  get: () => props.storyboardPanelMode || "auto",
+  set: (val: "auto" | "firstLastFrame" | "multiParam") => {
+    emit("update:storyboardPanelMode", val);
+  },
+});
+
+function handleAgentWriteModeChange(value: unknown) {
+  const mode = String(value) as "auto" | "firstLastFrame" | "multiParam";
+  agentWriteMode.value = mode;
+  const labels: Record<string, string> = { auto: "自动(按模型)", firstLastFrame: "首位帧模式", multiParam: "多参模式" };
+  window.$message.success(`分镜面板写入模式已切换为 ${labels[mode] || mode}`);
+  // 立即保存到数据库，确保 Agent 执行时能读取到
+  productionAgentStore().setFlowData();
+}
+
+// 分镜面板显示模式: shot=逐镜头, segment=逐片段
+const displayMode = useLocalStorage("storyboardDisplayMode", "shot");
+
+function handleDisplayModeChange(value: unknown) {
+  displayMode.value = String(value);
+}
+
+// 按 track 分组（逐片段模式）
+const storyboardGroups = computed(() => {
+  const groups: { track: string; items: Storyboard[] }[] = [];
+  const map = new Map<string, Storyboard[]>();
+  storyboard.value.forEach((item) => {
+    const track = item.track || "默认片段";
+    if (!map.has(track)) map.set(track, []);
+    map.get(track)!.push(item);
+  });
+  map.forEach((items, track) => {
+    groups.push({ track, items });
+  });
+  return groups;
+});
 const previewVisible = ref(false);
 const previewImages = ref<string[]>([]);
 const gridScale = useLocalStorage("storyboardGridScale", 1);
@@ -601,6 +698,12 @@ watch(
   .titleBar {
     cursor: grab;
     user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .titleBarRight {
+    gap: 0;
   }
   .title {
     background-color: #000;
@@ -792,6 +895,42 @@ watch(
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  // 逐片段模式样式
+  .segmentGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .segmentGroup {
+    border: 1px solid var(--td-border-level-2-color);
+    border-radius: 8px;
+    padding: 12px;
+    background: var(--td-bg-color-secondarycontainer);
+  }
+  .segmentHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--td-border-level-1-color);
+    .segmentTrackName {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--td-text-color-primary);
+    }
+    .segmentCount {
+      font-size: 12px;
+      color: var(--td-text-color-secondary);
+      margin-left: auto;
+    }
+  }
+  .segmentFrames {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 :deep(.t-image__wrapper) {

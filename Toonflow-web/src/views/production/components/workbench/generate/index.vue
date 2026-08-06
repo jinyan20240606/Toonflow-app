@@ -474,6 +474,8 @@ onMounted(() => {
     startPoll();
   }
 });
+
+
 /** 单个轨道生成视频 */
 async function generateVideo() {
   const dlg = DialogPlugin.confirm({

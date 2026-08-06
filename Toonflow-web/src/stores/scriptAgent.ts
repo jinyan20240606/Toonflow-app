@@ -17,11 +17,14 @@ function makeScriptAgentStore(projectId: string) {
           script: [],
         });
 
+        const episodesId = ref<number>();
+
         const { connected, messages, chat, stopGenerate, socket, status, disconnect, connect } = useChat({
           url: `${settingStore().baseUrl}/socket/scriptAgent`,
           auth: () => ({
-            isolationKey: `${projectId}:scriptAgent`,
+            isolationKey: `${projectId}:scriptAgent:${episodesId.value}`,
             projectId: projectId,
+            scriptId: episodesId.value,
           }),
           manageLifecycle: false,
           xmlTags: [
@@ -67,7 +70,7 @@ function makeScriptAgentStore(projectId: string) {
         );
 
         async function setPlanData() {
-          await axios.post("/scriptAgent/setPlanData", { projectId: projectId, agentType: "scriptAgent", data: planData.value });
+          await axios.post("/scriptAgent/setPlanData", { projectId: projectId, agentType: "scriptAgent", episodesId: episodesId.value, data: planData.value });
         }
 
         const thinkLevel = ref(0);
@@ -79,7 +82,7 @@ function makeScriptAgentStore(projectId: string) {
           }
         }
 
-        return { connected, messages, chat, stopGenerate, socket, status, planData, setPlanData, connect, disconnect, thinkLevel, updateThinkConfig };
+        return { connected, messages, chat, stopGenerate, socket, status, planData, setPlanData, connect, disconnect, thinkLevel, updateThinkConfig, episodesId };
       });
 }
 

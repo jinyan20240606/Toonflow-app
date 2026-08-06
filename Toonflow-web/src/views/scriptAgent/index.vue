@@ -3,6 +3,19 @@
     <Splitpanes class="default-theme data f">
       <Pane :size="30" :min-size="15" class="operate">
         <div class="box pr">
+          <div class="episodesSelect" v-if="episodesOptions.length">
+            <t-select
+              :value="episodesId"
+              :placeholder="$t('workbench.production.selectPlaceholder')"
+              autoWidth
+              :options="episodesOptions"
+              filterable
+              @change="handleEpisodesChange">
+              <template #label>
+                <i-document-folder size="16" />
+              </template>
+            </t-select>
+          </div>
           <t-chat-list :clear-history="false">
             <t-chat-message
               v-for="message in messages"
@@ -227,6 +240,23 @@ const thinkLevelOptions = [
 import productionAgentStore from "@/stores/productionAgent";
 const currentTable = ref(1);
 const inputValue = ref("");
+
+// 剧本/章节选择
+const episodesOptions = ref<{ label: string; value: number }[]>([]);
+const { episodesId } = storeToRefs(scriptAgentStore());
+
+function handleEpisodesChange(value: unknown) {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  const nextEpisodesId = Number(rawValue);
+  if (!Number.isFinite(nextEpisodesId) || nextEpisodesId === episodesId.value) return;
+
+  episodesId.value = nextEpisodesId;
+  // 重新加载数据
+  getPlanData();
+  getHistory();
+  // 更新 socket 上下文
+  scriptAgentStore().connect();
+}
 const toolbars: ToolbarNames[] = [
   "bold",
   "underline",
@@ -267,7 +297,7 @@ const defMsg: ChatMessagesData[] = [
 
 onMounted(() => {
   if (messages.value.length <= 0) messages.value = [...defMsg, ...messages.value];
-  getPlanData();
+  getScriptData();
   getNovel();
   scriptAgentStore().connect();
 
@@ -275,11 +305,28 @@ onMounted(() => {
 });
 const agentWorkDataId = ref<number>();
 async function getPlanData() {
-  const { data } = await axios.post("/scriptAgent/getPlanData", { projectId: project.value?.id, agentType: "scriptAgent" });
+  const { data } = await axios.post("/scriptAgent/getPlanData", { projectId: project.value?.id, agentType: "scriptAgent", episodesId: episodesId.value });
   planData.value.storySkeleton = data.data.storySkeleton;
   planData.value.adaptationStrategy = data.data.adaptationStrategy;
   planData.value.script = data.data.script || [];
   agentWorkDataId.value = data.id;
+}
+
+async function getScriptData() {
+  const { data: scriptRes } = await axios.post("/script/getScrptApi", {
+    projectId: project.value?.id,
+    name: "",
+  });
+  episodesOptions.value = scriptRes.map((ep: any) => ({
+    label: ep.name,
+    value: ep.id,
+  }));
+  if (episodesOptions.value.length && !episodesId.value) {
+    episodesId.value = episodesOptions.value[0].value;
+  }
+  if (episodesId.value) {
+    await getPlanData();
+  }
 }
 
 //快捷发送
@@ -310,7 +357,7 @@ function handleClearMemory(type: "message" | "summary" | "all" | "reconnect") {
     cancelBtn: $t("workbench.scriptAgent.msg.cancel"),
     theme: "warning",
     onConfirm: async () => {
-      await axios.post(`/agents/clearMemory`, { projectId: project.value?.id, agentType: "scriptAgent", type });
+      await axios.post(`/agents/clearMemory`, { projectId: project.value?.id, agentType: "scriptAgent", episodesId: episodesId.value, type });
       window.$message.success($t("workbench.scriptAgent.msg.memoryCleared", { type: memoryTypeLabel[type] }));
       dialog.destroy();
       getHistory();
@@ -337,6 +384,7 @@ async function getHistory() {
   const { data } = await axios.post(`/agents/getMemory`, {
     projectId: project.value?.id,
     agentType: "scriptAgent",
+    episodesId: episodesId.value,
   });
   messages.value = [...defMsg, ...data];
   loadingHistory.value = false;
@@ -416,6 +464,7 @@ function onConfirm(value: string) {
   axios
     .post("/scriptAgent/updateData", {
       id: agentWorkDataId.value,
+      episodesId: episodesId.value,
       data: {
         storySkeleton: currentTable.value == 1 ? value : planData.value.storySkeleton,
         adaptationStrategy: currentTable.value == 2 ? value : planData.value.adaptationStrategy,
@@ -531,6 +580,9 @@ function toggleAllCards() {
         width: 100%;
         height: 100%;
         padding-left: 8px;
+        .episodesSelect {
+          padding: 4px 8px 8px 0;
+        }
         .inputBox {
           padding-right: 8px;
           padding-bottom: 8px;

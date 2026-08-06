@@ -72,6 +72,7 @@ export default router.post(
         ),
         storyboardTable: "",
         storyboard: [],
+        storyboardPanelMode: "auto",
         //todo：矫正workbench数据
         //@ts-ignore
         workbench: {
@@ -144,6 +145,8 @@ export default router.post(
             index: i.index,
             duration: i.duration ? +i.duration : 0,
             prompt: i.prompt,
+            track: i.track ?? "",
+            trackId: i.trackId,
             associateAssetsIds: assets2StoryboardMap[i.id!] ?? [],
             src: i.filePath,
             state: i.state,

@@ -53,12 +53,21 @@ export default router.post(
 
     // 为每个父资产添加子资产
     const result = await Promise.all(
-      parentAssets.map(async (parent) => ({
-        ...parent,
-        sonAssets: childAssetsWithSrc.filter((child) => child.assetsId === parent.id),
-        src: parent.filePath && (await filterTypeGetFileUrl(parent.filePath!, parent.type)),
-        ...(parent.type == "audio" ? { sex: parent.describe?.split("|")[0], describe: parent.describe?.split("|")[1] } : {}),
-      })),
+      parentAssets.map(async (parent) => {
+        const audioDescribe = parent.describe ?? "";
+        const separatorIndex = audioDescribe.indexOf("|");
+        return {
+          ...parent,
+          sonAssets: childAssetsWithSrc.filter((child) => child.assetsId === parent.id),
+          src: parent.filePath && (await filterTypeGetFileUrl(parent.filePath!, parent.type)),
+          ...(parent.type == "audio"
+            ? {
+                sex: separatorIndex >= 0 ? audioDescribe.slice(0, separatorIndex) : "",
+                describe: separatorIndex >= 0 ? audioDescribe.slice(separatorIndex + 1) : audioDescribe,
+              }
+            : {}),
+        };
+      }),
     );
 
     // 统计总数

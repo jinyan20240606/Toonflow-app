@@ -48,6 +48,7 @@ export const flowDataSchema = z.object({
   assets: z.array(assetItemSchema).describe("衍生资产"),
   storyboardTable: z.string().describe("分镜表"),
   storyboard: z.array(storyboardSchema).describe("分镜面板"),
+  storyboardPanelMode: z.enum(["auto", "firstLastFrame", "multiParam"]).optional().describe("用户强制指定的分镜面板写入模式"),
 });
 
 export type FlowData = z.infer<typeof flowDataSchema>;

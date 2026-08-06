@@ -111,6 +111,34 @@ async function getModelConfig(value: AiType | `${string}:${string}`) {
   return null;
 }
 
+function getErrorDetails(error: any, depth = 0): any {
+  if (error == null || depth > 5) return error;
+  if (typeof error !== "object") return String(error);
+
+  const details: Record<string, any> = {};
+  for (const key of ["name", "message", "code", "errno", "type", "syscall", "hostname", "address", "port", "status", "statusText"]) {
+    if (error[key] !== undefined) details[key] = error[key];
+  }
+  if (error.stack) details.stack = error.stack;
+  if (error.response) {
+    details.response = {
+      status: error.response.status,
+      statusText: error.response.statusText,
+      data: error.response.data,
+    };
+  }
+  if (error.cause) details.cause = getErrorDetails(error.cause, depth + 1);
+  return details;
+}
+
+function createVendorError(vendorName: string, fnName: FnName, modelName: string, error: any): Error {
+  console.error(`[供应商调用异常] vendor=${vendorName}, function=${fnName}, model=${modelName}`, getErrorDetails(error));
+  const message = error?.message ?? String(error);
+  const wrappedError = new Error(`供应商「${vendorName}」调用失败：${message}，请前往设置 > 供应商配置 中检查配置`);
+  (wrappedError as any).cause = error;
+  return wrappedError;
+}
+
 async function getVendorTemplateFn(
   fnName: "textRequest",
   modelName: `${string}:${string}`,
@@ -139,8 +167,7 @@ async function getVendorTemplateFn(fnName: FnName, modelName: `${string}:${strin
       try {
         return fn(selectedModel, effectiveThink, thinkLevel);
       } catch (err: any) {
-        const msg: string = err?.message ?? String(err);
-        throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+        throw createVendorError(vendorName, fnName, modelName, err);
       }
     };
   else return <T>(input: T) => {
@@ -148,14 +175,12 @@ async function getVendorTemplateFn(fnName: FnName, modelName: `${string}:${strin
       const result = fn(input, selectedModel);
       if (result && typeof result.then === "function") {
         return result.catch((err: any) => {
-          const msg: string = err?.message ?? String(err);
-          throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+          throw createVendorError(vendorName, fnName, modelName, err);
         });
       }
       return result;
     } catch (err: any) {
-      const msg: string = err?.message ?? String(err);
-      throw new Error(`供应商「${vendorName}」调用失败：${msg}，请前往设置 > 供应商配置 中检查配置`);
+      throw createVendorError(vendorName, fnName, modelName, err);
     }
   };
 }

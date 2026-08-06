@@ -64,7 +64,30 @@ export async function runDecisionAI(ctx: AgentContext) {
   // const findData = models.find((i: any) => i.modelName == videoModelName);
   // const isRef = findData.mode.every((i: any) => Array.isArray(i));
 
-  const modelInfo = `项目使用的模型如下：\n图像模型：${imageModelName}\n视频模型：${videoModelName}\n多参：${isRef ? "是" : "否"}`;
+  // 读取用户强制指定的分镜面板写入模式
+  let forcedPanelMode: string | null = null;
+  try {
+    const flowDataRow = await u.db("o_agentWorkData")
+      .where("projectId", String(ctx.resTool.data.projectId))
+      .andWhere("episodesId", String(ctx.resTool.data.scriptId))
+      .select("data")
+      .first();
+    if (flowDataRow?.data) {
+      const parsed = JSON.parse(flowDataRow.data);
+      if (parsed.storyboardPanelMode && parsed.storyboardPanelMode !== "auto") {
+        forcedPanelMode = parsed.storyboardPanelMode;
+      }
+    }
+  } catch (e) {
+    // 忽略读取失败
+  }
+
+  // 如果用户强制指定了模式，覆盖 isRef
+  // 多参模式也走首位帧流程（生成 prompt + 分镜图），确保有提示词
+  const effectiveIsRef = forcedPanelMode === "multiParam" ? false : forcedPanelMode === "firstLastFrame" ? false : isRef;
+
+  const forcedModeLabel = forcedPanelMode === "multiParam" ? "多参模式" : forcedPanelMode === "firstLastFrame" ? "首位帧模式" : "无";
+  const modelInfo = `项目使用的模型如下：\n图像模型：${imageModelName}\n视频模型：${videoModelName}\n多参：${effectiveIsRef ? "是" : "否"}\n用户强制模式：${forcedModeLabel}`;
 
   const mem = buildMemPrompt(await memory.get(text));
 
@@ -161,7 +184,30 @@ async function createSubAgent(parentCtx: AgentContext) {
   }
   const isRef = Array.isArray(videoMode) ? true : false;
 
-  const modelInfo = `项目使用的模型如下：\n图像模型：${imageModelName}\n视频模型：${videoModelName}\n多参：${isRef ? "是" : "否"}`;
+  // 读取用户强制指定的分镜面板写入模式
+  let forcedPanelMode: string | null = null;
+  try {
+    const flowDataRow = await u.db("o_agentWorkData")
+      .where("projectId", String(resTool.data.projectId))
+      .andWhere("episodesId", String(resTool.data.scriptId))
+      .select("data")
+      .first();
+    if (flowDataRow?.data) {
+      const parsed = JSON.parse(flowDataRow.data);
+      if (parsed.storyboardPanelMode && parsed.storyboardPanelMode !== "auto") {
+        forcedPanelMode = parsed.storyboardPanelMode;
+      }
+    }
+  } catch (e) {
+    // 忽略读取失败
+  }
+
+  // 如果用户强制指定了模式，覆盖 isRef
+  // 多参模式也走首位帧流程（生成 prompt + 分镜图），确保有提示词
+  const effectiveIsRef = forcedPanelMode === "multiParam" ? false : forcedPanelMode === "firstLastFrame" ? false : isRef;
+
+  const forcedModeLabel = forcedPanelMode === "multiParam" ? "多参模式" : forcedPanelMode === "firstLastFrame" ? "首位帧模式" : "无";
+  const modelInfo = `项目使用的模型如下：\n图像模型：${imageModelName}\n视频模型：${videoModelName}\n多参：${effectiveIsRef ? "是" : "否"}\n用户强制模式：${forcedModeLabel}`;
 
   // const run_sub_agent_execution = tool({
   //   description: "执行层子Agent，负责衍生资产、",
@@ -307,15 +353,22 @@ async function createSubAgent(parentCtx: AgentContext) {
       const addPrompt =
         "\n你必须使用如下XML格式写入工作区：\n```\n<storyboardItem videoDesc='视频描述' prompt=提示词内容 track='分组' shouldGenerateImage='true/false' duration='视频推荐时间' associateAssetsIds='[该分镜所需的资产ID列表]'></storyboardItem>\n```";
 
+      // 用户强制多参模式时，追加 track 按分镜表组分批的指令
+      let extraPrompt = "";
+      if (forcedPanelMode === "multiParam") {
+        extraPrompt =
+          "\n\n【重要】用户强制指定了多参模式（带提示词）：以分镜表的「组」为写入单位，每个组调用一次 add_flowData_storyboard。同一组内所有分镜行的 videoDesc 合并为该组的 videoDesc，prompt 用该组第一条分镜的提示词，duration 为该组总时长，shouldGenerateImage 设为 true。track 按组顺序累加（第1组=1，第2组=2...）。";
+      }
+
       return runAgent({
         key: "productionAgent:storyboardPanelAgent",
-        prompt,
+        prompt: prompt + extraPrompt,
         system: systemPrompt + addPrompt,
         name: "执行导演",
         memoryKey: "assistant:execution",
         messages: [
           { role: "assistant", content: productionSkills.prompt + `\n${modelInfo}` },
-          { role: "user", content: prompt + addPrompt },
+          { role: "user", content: prompt + addPrompt + extraPrompt },
         ],
         tools: { activate_skill: productionSkills.tools.activate_skill },
       });

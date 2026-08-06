@@ -29,6 +29,11 @@
               </div>
               <div class="cardDesc">{{ asset.desc }}</div>
             </div>
+            <t-tooltip theme="primary" :content="$t('workbench.production.node.storyboard.deleteNode')">
+              <div class="remove ac" @click.stop="removeMainAsset(asset.id!)">
+                <i-delete theme="outline" size="18" fill="#fff" />
+              </div>
+            </t-tooltip>
           </t-card>
           <div class="divider">
             <i-right size="32"></i-right>
@@ -150,6 +155,34 @@ async function removeFn(id: number) {
             item.derive.splice(targetIndex, 1);
           }
         });
+      } catch (e) {
+        window.$message.error((e as any)?.message || $t("workbench.production.node.assets.removeFailed"));
+      } finally {
+        dialog.destroy();
+      }
+    },
+  });
+}
+
+async function removeMainAsset(id: number) {
+  const dialog = DialogPlugin.confirm({
+    header: $t("workbench.assets.confirmDeleteHeader"),
+    body: $t("workbench.production.node.assets.confirmDeleteMainBody"),
+    confirmBtn: $t("workbench.assets.deleteBtn"),
+    cancelBtn: $t("workbench.assets.cancelBtn"),
+    theme: "danger",
+    onConfirm: async () => {
+      try {
+        await axios.post("/production/assets/deleteMainAsset", {
+          id,
+          projectId: project.value?.id,
+        });
+        // 从列表中移除
+        const targetIndex = assets.value.findIndex((a) => a.id === id);
+        if (targetIndex !== -1) {
+          assets.value.splice(targetIndex, 1);
+        }
+        window.$message.success($t("workbench.production.node.assets.deleteSuccess"));
       } catch (e) {
         window.$message.error((e as any)?.message || $t("workbench.production.node.assets.removeFailed"));
       } finally {

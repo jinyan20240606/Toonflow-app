@@ -43,7 +43,7 @@
       <assets :id="props.id" v-model="flowData.assets" :handleIds="props.data.handleIds" />
     </template>
     <template #node-storyboard="props">
-      <storyboard :id="props.id" v-model="flowData.storyboard" :assetsData="flowData.assets" :handleIds="props.data.handleIds" />
+      <storyboard :id="props.id" v-model="flowData.storyboard" :assetsData="flowData.assets" v-model:storyboardPanelMode="flowData.storyboardPanelMode" :handleIds="props.data.handleIds" />
     </template>
     <template #node-workbench="props">
       <workbench :id="props.id" v-model="flowData.workbench" :handleIds="props.data.handleIds" />

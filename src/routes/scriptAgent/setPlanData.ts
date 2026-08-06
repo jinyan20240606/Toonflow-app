@@ -10,16 +10,18 @@ export default router.post(
   validateFields({
     projectId: z.number(),
     agentType: z.enum(["scriptAgent"]),
+    episodesId: z.number().optional(),
     data: z.object({
       storySkeleton: z.string(),
       adaptationStrategy: z.string(),
     }),
   }),
   async (req, res) => {
-    const { projectId, agentType, data } = req.body;
+    const { projectId, agentType, episodesId, data } = req.body;
+    const key = episodesId ? `${agentType}:${episodesId}` : agentType;
     await u
       .db("o_agentWorkData")
-      .where({ projectId: projectId, key: agentType })
+      .where({ projectId: projectId, key })
       .update({
         data: JSON.stringify(data),
       });

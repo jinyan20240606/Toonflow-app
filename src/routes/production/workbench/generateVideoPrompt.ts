@@ -244,6 +244,12 @@ export default router.post(
           },
         ],
       });
+      if (String(modelData).toLowerCase().includes("kling")) {
+        console.log(
+          `[generateVideoPrompt] Kling 提示词生成: trackId=${trackId}, model=${modelData}, inputLength=${content.length}, ` +
+            `outputLength=${text.length}, audioReferenceMode=${isAudioReferenceMode}`,
+        );
+      }
       // 非音频模式下，在提示词末尾追加 [Voice Timbre] 段
       let promptText = text;
       if (!isAudioReferenceMode && Object.keys(roleAudioMap).length > 0) {
@@ -254,6 +260,9 @@ export default router.post(
             return `- ${roleName}：${sex || ""}，${timbre || audio.describe || audio.name || "无描述"}`;
           });
         promptText = text + `\n\n[Voice Timbre]\n${timbreLines.join("\n")}`;
+      }
+      if (String(modelData).toLowerCase().includes("kling")) {
+        console.log(`[generateVideoPrompt] Kling 最终提示词: trackId=${trackId}, finalLength=${promptText.length}`);
       }
       await u.db("o_videoTrack").where({ id: trackId }).update({
         state: "已完成",

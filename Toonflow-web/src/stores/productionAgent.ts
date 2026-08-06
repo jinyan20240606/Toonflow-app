@@ -32,6 +32,7 @@ function makeProductionAgentStore(projectId: string) {
       storyboardTable: "", //分镜表
       assets: [], // 衍生资产
       storyboard: [], //分镜面板
+      storyboardPanelMode: "auto", // 分镜面板写入模式
       workbench: {
         videoList: [],
       }, // 工作台数据
@@ -225,6 +226,16 @@ function makeProductionAgentStore(projectId: string) {
     }
 
     async function getFlowData() {
+      // 先重置数据，避免切换时闪现旧数据
+      flowData.value = {
+        script: "",
+        scriptPlan: "",
+        storyboardTable: "",
+        assets: [],
+        storyboard: [],
+        storyboardPanelMode: "auto",
+        workbench: { videoList: [] },
+      };
       const { data } = await axios.post("/production/getFlowData", {
         projectId: projectId,
         episodesId: episodesId.value,
